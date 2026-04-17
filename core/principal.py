@@ -153,6 +153,8 @@ def lancer_calcul(projet: Projet) -> ResultatsProjet:
             As_sup = _as_poteau_sup(barre, projet)
             alerte_am = As_sup > 0 and r["As"] > As_sup * 1.5
 
+            # alerte_am : amorces excédentaires OU As > As_max
+            alerte_am_final = alerte_am or r.get("alerte_as_max", False)
             rp = ResultatPoteau(
                 barre_id=barre.id,
                 etiq=f"C{barre.id}({barre.ni}-{barre.nj})",
@@ -160,7 +162,7 @@ def lancer_calcul(projet: Projet) -> ResultatsProjet:
                 As=r["As"], alpha=r["alpha"], lam=r["lam"],
                 phi_am=r["phi_am"], ls_am=r["ls_am"],
                 vL=r["vL"], vS=r["vS"],
-                section=r["section"], alerte_am=alerte_am,
+                section=r["section"], alerte_am=alerte_am_final,
             )
             res.poteaux.append(rp)
 
