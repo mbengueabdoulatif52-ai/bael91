@@ -308,10 +308,19 @@ def dim_poteau(Nu, b, h, lf, mat: Materiaux) -> dict:
     As_min2 = 4 * math.pi * (8/20)**2
     As      = max(As, As_min1, As_min2)
 
+    # As_max BAEL Art. A.8.1 : 5% de la section béton (zone courante)
+    As_max = 0.05 * b * 1000 * h * 1000 / 100   # cm²
+    alerte_as_max = As > As_max
+
     # Vérif section
     sigma_b = Nu_N / (alpha * Br_mm2) if Br_mm2 > 0 else 0
-    vS = ("Sect:OK" if sigma_b <= fbc * 1.05
-          else f"REVOIR sig={sigma_b:.1f}>{fbc:.1f}MPa")
+    vS_base = ("Sect:OK" if sigma_b <= fbc * 1.05
+               else f"REVOIR sig={sigma_b:.1f}>{fbc:.1f}MPa")
+    if alerte_as_max:
+        vS = (f"REVOIR As={As:.1f}cm²>As_max={As_max:.1f}cm² "
+              f"(5% section) — augmenter b ou h")
+    else:
+        vS = vS_base
 
     # Amorces
     phi_am = 8
@@ -322,13 +331,15 @@ def dim_poteau(Nu, b, h, lf, mat: Materiaux) -> dict:
     ls_am = 40 * phi_am / 1000
 
     return {
-        "As":      round(As, 2),
-        "alpha":   round(alpha, 3),
-        "lam":     round(lam, 1),
-        "phi_am":  phi_am,
-        "ls_am":   round(ls_am, 3),
-        "vL":      vL,
-        "vS":      vS,
-        "alerte":  ("REVOIR" in vL or "REVOIR" in vS),
-        "section": f"{b*100:.0f}x{h*100:.0f}cm",
+        "As":           round(As, 2),
+        "As_max":       round(As_max, 2),
+        "alerte_as_max": alerte_as_max,
+        "alpha":        round(alpha, 3),
+        "lam":          round(lam, 1),
+        "phi_am":       phi_am,
+        "ls_am":        round(ls_am, 3),
+        "vL":           vL,
+        "vS":           vS,
+        "alerte":       ("REVOIR" in vL or "REVOIR" in vS),
+        "section":      f"{b*100:.0f}x{h*100:.0f}cm",
     }
