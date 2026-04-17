@@ -134,6 +134,12 @@ def calc_toutes_semelles(projet, charges_reportees: dict) -> None:
 
         idx = index_noeud(pot.ni, projet.noeuds)
         Nu_ELU = charges_reportees.get(idx, 0.0) if idx else 0.0
+        # DEBUG TEMPORAIRE — à supprimer après résolution
+        if sem.id_poteau <= 3:
+            print(f"DEBUG fondations: sem={sem.id_poteau} "
+                  f"pot.id={pot.id} pot.ni={pot.ni} "
+                  f"idx={idx} Nu_ELU={Nu_ELU:.1f} "
+                  f"keys_sample={list(charges_reportees.keys())[:5]}")
         sem.Nu_ELU = Nu_ELU
         sem.Nu_ser = Nu_ELU / 1.35
 
