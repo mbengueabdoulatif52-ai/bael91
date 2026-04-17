@@ -112,6 +112,26 @@ def exporter_excel(res, projet) -> bytes:
             style_dat(ws2.cell(i, c), v, bg)
         ws2.row_dimensions[i].height = 14
 
+    # ── Feuille Dalles ────────────────────────────────────────────────────────
+    ws_d = wb.create_sheet("Dalles")
+    hdrs_d = ["ID", "Type", "h/e", "Mu_x (kN.m)", "Mu_y (kN.m)",
+              "As nerv. (cm²/m)", "As rép. (cm²/m)", "ELU", "ELS"]
+    for c, h in enumerate(hdrs_d, 1):
+        style_hdr(ws_d.cell(1, c), h, "1F3864")
+        ws_d.column_dimensions[get_column_letter(c)].width = 14
+    ws_d.row_dimensions[1].height = 28
+    for i, r in enumerate(res.dalles, 2):
+        bg = "FCE4D6" if r.alerte else "EEF4FF"
+        vals = [r.dalle_id, r.type_dalle, r.typH,
+                round(r.Mu_x, 2),
+                round(r.Mu_y, 2) if r.Mu_y > 0 else "—",
+                round(r.As_nerv, 2), round(r.As_rep, 2),
+                "⚠ REVOIR" if "REVOIR" in r.vH else "OK",
+                "⚠ REVOIR" if "REVOIR" in r.vELS else "OK"]
+        for c, v in enumerate(vals, 1):
+            style_dat(ws_d.cell(i, c), v, bg)
+        ws_d.row_dimensions[i].height = 14
+
     # ── Feuille Fondations ────────────────────────────────────────────────────
     ws3 = wb.create_sheet("Fondations")
     hdrs3 = ["Poteau", "Type", "B (m)", "L (m)", "e (cm)",
