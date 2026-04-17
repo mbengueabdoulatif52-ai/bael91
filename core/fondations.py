@@ -1,0 +1,190 @@
+"""
+fondations.py — Dimensionnement fondations BAEL 91
+v2 : appel automatique de dim_longrine si ex>0 ou ey>0
+"""
+import math
+from .declarations import Semelle, Materiaux
+
+
+def dim_semelle_centree(s: Semelle, b_pot: float, h_pot: float,
+                        mat: Materiaux) -> Semelle:
+    q_adm = s.q_adm_loc if s.q_adm_loc > 0 else mat.q_adm
+    Nu_ser = s.Nu_ser
+    if Nu_ser <= 0:
+        return s
+
+    # Dimensions
+    B = math.sqrt(Nu_ser * 1.10 / q_adm)
+    B = _arr(B, 0.05)
+    if B < b_pot + 0.10:
+        B = _arr(b_pot + 0.10, 0.05)
+    s.B = B; s.L_sem = B
+
+    # Pression sol
+    s.q_max = Nu_ser * 1.10 / (B * B)
+    s.q_min = s.q_max
+
+    # Hauteur par cisaillement (formule BAEL)
+    d_deb   = (B - b_pot) / 2
+    tau_lim = 0.07 * mat.fc28 / mat.gammab
+    V       = s.q_max * d_deb
+    d_u_min = V / (tau_lim * 1000)
+    h_sem   = max(d_u_min + mat.c_fond, 0.20)
+    s.e_sem = _arr(h_sem, 0.05)
+
+    # Armatures
+    d_u  = s.e_sem - mat.c_fond
+    Mu_s = s.q_max * d_deb**2 / 2
+    if Mu_s > 0 and d_u > 0:
+        As      = Mu_s * 1e6 / (0.9 * d_u * 1000 * mat.fsu) / 100
+        As_min  = 0.001 * s.e_sem * 1000
+        s.Asx   = max(As, As_min)
+        s.Asy   = s.Asx
+    else:
+        s.Asx = s.Asy = 0.5
+
+    # Amorces
+    s.phi_amorce, s.nb_amorce = _choisir_amorces(s.Asx, b_pot, h_pot)
+    s.ls_amorce  = 40 * s.phi_amorce / 1000
+
+    s.alerte = (f"REVOIR q={s.q_max:.0f}>{q_adm:.0f}kN/m²"
+                if s.q_max > q_adm * 1.01 else "")
+    return s
+
+
+def dim_semelle_excentrique(s: Semelle, b_pot: float, h_pot: float,
+                             mat: Materiaux) -> Semelle:
+    q_adm  = s.q_adm_loc if s.q_adm_loc > 0 else mat.q_adm
+    Nu_ser = s.Nu_ser
+    ex, ey = s.ex, s.ey
+    if Nu_ser <= 0:
+        return s
+
+    B0 = math.sqrt(Nu_ser * 1.10 / q_adm)
+    for _ in range(5):
+        B  = _arr(B0, 0.05)
+        ex_eff = min(ex, B / 6) if ex > 0 else 0
+        ey_eff = min(ey, B / 6) if ey > 0 else 0
+        q_m = Nu_ser / (B*B) * (1 + 6*ex_eff/B + 6*ey_eff/B)
+        if q_m > q_adm:
+            B0 = B0 * math.sqrt(q_m / q_adm)
+        else:
+            break
+
+    s.B = _arr(B0, 0.05); s.L_sem = s.B
+    d_deb   = (s.B - b_pot) / 2
+    tau_lim = 0.07 * mat.fc28 / mat.gammab
+    s.q_max = Nu_ser / (s.B*s.L_sem) * (1 + 6*min(ex,s.B/6)/s.B
+                                          + 6*min(ey,s.L_sem/6)/s.L_sem)
+    s.q_min = Nu_ser / (s.B*s.L_sem) * (1 - 6*min(ex,s.B/6)/s.B
+                                          - 6*min(ey,s.L_sem/6)/s.L_sem)
+    d_u_min  = s.q_max * d_deb / (tau_lim * 1000)
+    s.e_sem  = _arr(max(d_u_min + mat.c_fond, 0.25), 0.05)
+
+    d_u  = s.e_sem - mat.c_fond
+    Mu_s = s.q_max * d_deb**2 / 2
+    if Mu_s > 0 and d_u > 0:
+        As     = Mu_s * 1e6 / (0.9 * d_u * 1000 * mat.fsu) / 100
+        s.Asx  = max(As, 0.001 * s.e_sem * 1000)
+        s.Asy  = s.Asx
+    else:
+        s.Asx = s.Asy = 0.5
+
+    s.phi_amorce, s.nb_amorce = _choisir_amorces(s.Asx, b_pot, h_pot)
+    s.ls_amorce = 40 * s.phi_amorce / 1000
+    s.alerte = (f"REVOIR q={s.q_max:.0f}>{q_adm:.0f}kN/m²"
+                if s.q_max > q_adm * 1.01 else "")
+    return s
+
+
+def dim_longrine(Nu_ser: float, e_exc: float, L_long: float,
+                 b_long: float, h_long: float, mat: Materiaux) -> dict:
+    """Dimensionnement longrine de redressement. M_red = Nu_ser × e_exc."""
+    M_red = Nu_ser * e_exc
+    d_mm  = (h_long - mat.c_fond) * 1000
+    b_mm  = b_long * 1000
+    if d_mm <= 0 or M_red <= 0:
+        return {"As_long": 0.0, "As_chap": 0.0, "vM": "M=0", "Mu": 0.0}
+
+    Mu_Nmm = M_red * 1e6
+    mu     = min(Mu_Nmm / (b_mm * d_mm**2 * mat.fbu), 0.392)
+    z      = d_mm * (1 - 0.4 * math.sqrt(max(1 - 2*mu, 0)))
+    As     = Mu_Nmm / (z * mat.fsu) / 100 if z > 0 else 0
+    As_min = max(0.23 * b_mm * d_mm * mat.ftj / mat.fe / 100,
+                 0.001 * b_mm * h_long * 1000 / 100)
+    As     = max(As, As_min)
+    vM     = f"M={M_red:.1f}kN.m  As={As:.2f}cm²"
+    return {"As_long": round(As, 2), "As_chap": round(As*0.5, 2),
+            "vM": vM, "Mu": M_red}
+
+
+def calc_toutes_semelles(projet, charges_reportees: dict) -> None:
+    """
+    Dimensionne toutes les semelles.
+    v2 : appel automatique de dim_longrine si ex>0 ou ey>0.
+    """
+    from .topologie import index_noeud
+    poteaux_n1 = [b for b in projet.barres
+                  if b.type_elem == "poteau" and b.niveau == 1]
+
+    for sem in projet.semelles:
+        pot = next((b for b in poteaux_n1 if b.id == sem.id_poteau), None)
+        if pot is None:
+            continue
+
+        idx = index_noeud(pot.ni, projet.noeuds)
+        Nu_ELU = charges_reportees.get(idx, 0.0) if idx else 0.0
+        sem.Nu_ELU = Nu_ELU
+        sem.Nu_ser = Nu_ELU / 1.35
+
+        b_pot = pot.b if pot.b > 0 else 0.25
+        h_pot = pot.h if pot.h > 0 else 0.25
+
+        if sem.ex == 0 and sem.ey == 0:
+            dim_semelle_centree(sem, b_pot, h_pot, projet.materiaux)
+        else:
+            dim_semelle_excentrique(sem, b_pot, h_pot, projet.materiaux)
+
+        # ── Longrines — v2 : appel automatique ────────────────────────────────
+        # Trouver la longueur de la longrine (distance au poteau voisin)
+        if sem.ex > 0 and sem.long_X_vers > 0:
+            L_lX = _distance_poteaux(pot, sem.long_X_vers, projet)
+            r = dim_longrine(sem.Nu_ser, sem.ex, L_lX,
+                             sem.b_long_X, sem.h_long_X, projet.materiaux)
+            sem.long_X_Mu = r["Mu"]
+            sem.long_X_As = r["As_long"]
+            sem.long_X_vM = r["vM"]
+
+        if sem.ey > 0 and sem.long_Y_vers > 0:
+            L_lY = _distance_poteaux(pot, sem.long_Y_vers, projet)
+            r = dim_longrine(sem.Nu_ser, sem.ey, L_lY,
+                             sem.b_long_Y, sem.h_long_Y, projet.materiaux)
+            sem.long_Y_Mu = r["Mu"]
+            sem.long_Y_As = r["As_long"]
+            sem.long_Y_vM = r["vM"]
+
+
+# ── Utilitaires ────────────────────────────────────────────────────────────────
+def _arr(val: float, pas: float) -> float:
+    return math.ceil(val / pas) * pas
+
+def _choisir_amorces(As_total, b_pot, h_pot):
+    As_p = (0.002 * b_pot * 1000 * h_pot * 1000 / 100) / 4
+    phi  = 8
+    for p in [20, 16, 12, 10]:
+        if As_p > math.pi * (p/20)**2:
+            phi = p; break
+    return phi, 4
+
+def _distance_poteaux(pot_base, id_vers: int, projet) -> float:
+    """Distance entre deux poteaux (longueur de la longrine)."""
+    noeud_map = {n.id: n for n in projet.noeuds}
+    pot_vers  = next((b for b in projet.barres
+                      if b.id == id_vers and b.type_elem == "poteau"), None)
+    if pot_vers is None:
+        return 3.0
+    n1 = noeud_map.get(pot_base.ni)
+    n2 = noeud_map.get(pot_vers.ni)
+    if n1 and n2:
+        return math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2)
+    return 3.0
