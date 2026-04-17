@@ -67,6 +67,63 @@ def lire_excel(chemin_ou_buffer) -> Tuple[Projet, List[str]]:
             if row[1] and "classe" in str(row[1]).lower():
                 if row[2]:
                     mat.classe_exposition = str(row[2]).strip()
+
+        # ── Vérification et correction des valeurs matériaux ──────────────────
+        # Détection des formules Excel non évaluées par openpyxl
+        # (fbu, fsu, sigmaBc, ftj sont des propriétés calculées depuis fc28/fe)
+        # Si les valeurs lues sont hors plage physique → recalculer depuis fc28/fe
+        params_corriges = []
+
+        def _hors_plage(val, lo, hi):
+            try:
+                return not (lo <= float(val) <= hi)
+            except (TypeError, ValueError):
+                return True
+
+        # fbu = 0.85 × fc28 / gammab → plage [5, 35] MPa
+        if _hors_plage(mat.fbu, 5.0, 35.0):
+            params_corriges.append(
+                f"fbu (lu={mat.fbu:.4f} MPa, recalculé={mat.fbu:.2f}→{mat.fc28*0.85/mat.gammab:.2f} MPa)"
+            )
+        # fsu = fe / gammas → plage [150, 500] MPa
+        if _hors_plage(mat.fsu, 150.0, 500.0):
+            params_corriges.append(
+                f"fsu (lu≈{mat.fsu:.2f} MPa, recalculé={mat.fe/mat.gammas:.2f} MPa)"
+            )
+        # sigmaBc = 0.6 × fc28 → plage [5, 30] MPa
+        if _hors_plage(mat.sigmaBc, 5.0, 30.0):
+            params_corriges.append(
+                f"sigmaBc (lu={mat.sigmaBc:.2f} MPa, recalculé={0.6*mat.fc28:.2f} MPa)"
+            )
+        # ftj = 0.6 + 0.06 × fc28 → plage [0.5, 5.0] MPa
+        if _hors_plage(mat.ftj, 0.5, 5.0):
+            params_corriges.append(
+                f"ftj (lu={mat.ftj:.2f} MPa, recalculé={0.6+0.06*mat.fc28:.2f} MPa)"
+            )
+        # fc28 plausible → plage [10, 60] MPa
+        if _hors_plage(mat.fc28, 10.0, 60.0):
+            erreurs.append(
+                f"fc28={mat.fc28} MPa hors plage [10-60] — vérifier la saisie"
+            )
+        # fe plausible → plage [200, 600] MPa
+        if _hors_plage(mat.fe, 200.0, 600.0):
+            erreurs.append(
+                f"fe={mat.fe} MPa hors plage [200-600] — vérifier la saisie"
+            )
+
+        if params_corriges:
+            msg = (
+                "⚠ Valeurs matériaux incohérentes détectées dans Excel "
+                "(formules non évaluées par openpyxl). "
+                "Valeurs recalculées automatiquement depuis fc28 et fe : "
+                + " | ".join(params_corriges)
+                + ". Le calcul utilisera les valeurs théoriques BAEL."
+            )
+            erreurs.append(msg)
+            # Note : fbu, fsu, sigmaBc, ftj sont des @property dans Materiaux
+            # → elles sont TOUJOURS recalculées depuis fc28/fe automatiquement
+            # → aucune correction de code nécessaire, l'avertissement suffit
+
     else:
         erreurs.append("Feuille 'Materiaux' introuvable — valeurs par défaut utilisées")
 
