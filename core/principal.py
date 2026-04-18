@@ -97,8 +97,9 @@ def lancer_calcul(projet: Projet) -> ResultatsProjet:
                     T = max(0.01 * Nu_app, 20.0)
                     As_chaine = max(T * 1000 / (projet.materiaux.fsu) / 100, 1.0)
 
-                etiq = (f"P{barre.id}({barre.ni}-{barre.nj})" if nb_tv == 1
-                        else f"P{barre.id} T{it}({tv.ni}-{tv.nj})")
+                nom_b = barre.nom if barre.nom else f"P{barre.id}"
+                etiq = (f"{nom_b}({barre.ni}-{barre.nj})" if nb_tv == 1
+                        else f"{nom_b} T{it}({tv.ni}-{tv.nj})")
 
                 rp = ResultatPoutre(
                     barre_id=barre.id, travee=it, etiq=etiq,
@@ -157,7 +158,7 @@ def lancer_calcul(projet: Projet) -> ResultatsProjet:
             alerte_am_final = alerte_am or r.get("alerte_as_max", False)
             rp = ResultatPoteau(
                 barre_id=barre.id,
-                etiq=f"C{barre.id}({barre.ni}-{barre.nj})",
+                etiq=f"{barre.nom if barre.nom else 'C'+str(barre.id)}({barre.ni}-{barre.nj})",
                 Nu=round(Nu, 1),
                 As=r["As"], alpha=r["alpha"], lam=r["lam"],
                 phi_am=r["phi_am"], ls_am=r["ls_am"],
