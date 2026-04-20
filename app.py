@@ -39,6 +39,7 @@ from ui.gestion_projets import (
 )
 from ui.resultats import page_resultats
 from ui.visualisation import page_visualisation
+from ui.escalier import page_escalier
 
 # ── Session state ──────────────────────────────────────────────────────────────
 for k, v in [("projet", None), ("resultats", None), ("page", "accueil")]:
@@ -56,6 +57,7 @@ with st.sidebar:
         "📥 Import & Calcul":"import",
         "📊 Résultats":     "resultats",
         "🔷 Visualisation": "visualisation",
+        "🪜 Escalier":      "escalier",
         "💾 Projets":       "projets",
     }
     for label, key in pages.items():
@@ -382,6 +384,10 @@ elif page == "visualisation":
         st.session_state.projet,
         st.session_state.resultats
     )
+
+elif st.session_state.page == "escalier":
+    page_escalier(st.session_state.projet)
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
