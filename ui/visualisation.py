@@ -56,42 +56,55 @@ def _prisme_horiz(x1,y1,x2,y2, z_bas, z_haut, larg, color, opacity=0.80):
                      lighting=dict(ambient=0.7,diffuse=0.5))
 
 
-def _generer_amorces(projet, Df):
+def _generer_amorces(projet, Df, res=None):
     """
-    Génère automatiquement les amorces pour chaque poteau de niveau 1.
+    Génère automatiquement les amorces UNIQUEMENT pour les poteaux
+    qui ont une semelle saisie dans le fichier de fondations.
     IDs négatifs pour éviter tout conflit avec les éléments saisis.
     Retourne (noeuds_virtuels, barres_amorces)
     """
-    from core.topologie import index_noeud
     noeud_map = {n.id: n for n in projet.noeuds}
 
     poteaux_n1 = [b for b in projet.barres
                   if b.type_elem == "poteau" and b.niveau == 1]
 
+    # IDs des poteaux qui ont une semelle saisie
+    ids_avec_semelle = set()
+    if res and res.semelles:
+        ids_avec_semelle = {s.id_poteau for s in res.semelles}
+    else:
+        # Fallback : tous les poteaux niveau 1
+        ids_avec_semelle = {b.id for b in poteaux_n1}
+
     noeuds_virtuels = {}  # id_negatif → (x, y, z)
     barres_amorces  = []  # dict avec infos
 
     for b in poteaux_n1:
+        # Ne créer l'amorce que si le poteau a une semelle saisie
+        if b.id not in ids_avec_semelle:
+            continue
+
         ni = noeud_map.get(b.ni)
         if not ni:
             continue
+
         # Nœud virtuel à Z = -Df (même X, Y que le pied du poteau)
-        id_nv = -b.id  # ID négatif
+        id_nv = -b.id  # ID négatif → aucun conflit avec les éléments saisis
         noeuds_virtuels[id_nv] = (ni.x, ni.y, -Df)
 
         barres_amorces.append({
-            'id':    -b.id,
-            'nom':   f"Amorce_{b.nom}",
-            'pot_id': b.id,
+            'id':     -b.id,
+            'nom':    f"Amorce_{b.nom}",
+            'pot_id':  b.id,
             'pot_nom': b.nom,
-            'ni_id': id_nv,       # nœud virtuel à Z=-Df
-            'nj_id': b.ni,        # nœud réel à Z=0
-            'x':     ni.x,
-            'y':     ni.y,
-            'z_bas': -Df,
-            'z_haut': 0.0,
-            'b':     b.b,
-            'h':     b.h,
+            'ni_id':   id_nv,   # nœud virtuel à Z=-Df
+            'nj_id':   b.ni,    # nœud réel à Z=0
+            'x':       ni.x,
+            'y':       ni.y,
+            'z_bas':  -Df,
+            'z_haut':  0.0,
+            'b':       b.b,
+            'h':       b.h,
         })
 
     return noeuds_virtuels, barres_amorces
@@ -270,7 +283,7 @@ def page_visualisation(projet, res=None):
     # AMORCES — Générées automatiquement (IDs négatifs)
     # ══════════════════════════════════════════════════════════════════════════
     if show_amorces:
-        _, barres_amorces = _generer_amorces(projet, Df)
+        _, barres_amorces = _generer_amorces(projet, Df, res)
         first_am = True
 
         for am in barres_amorces:
@@ -504,9 +517,11 @@ def page_visualisation(projet, res=None):
                            else s.b_long_Y) or 0.25
                     h_l = (s.h_long_X if direction=="X"
                            else s.h_long_Y) or 0.40
-                    t = _prisme_horiz(cx,cy,cx2,cy2,
-                                      z_top-h_l,z_top,b_l,
-                                      COL_LONGRINE,0.80)
+                    # Longrine relie les NŒUDS AMORCES (axes poteaux), pas les centres semelles
+                    t = _prisme_horiz(n_base.x, n_base.y,
+                                      n2.x, n2.y,
+                                      z_top-h_l, z_top, b_l,
+                                      COL_LONGRINE, 0.80)
                     if t: fig.add_trace(t)
 
                 # La longrine relie les nœuds amorces (position des poteaux)
