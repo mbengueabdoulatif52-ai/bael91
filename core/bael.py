@@ -103,9 +103,15 @@ def dim_hourdis(lx, G, Q, mat: Materiaux) -> ResultatDalle:
 
     As_rep = max(0.2 * As_nerv, 0.5)
 
-    h_min = lx / 16
-    vH = (f"{typ} OK (h={h_H*100:.0f}cm)" if h_H >= h_min
-          else f"{typ} REVOIR h_min={h_min*100:.0f}cm")
+    # Critère 1 — Catalogue constructeur (critère principal)
+    # Le choix du type garantit lx <= lx_max → OK par construction
+    # Critère 2 — BAEL Art. B.6.8 : h >= L/22.5 (indicatif)
+    h_min_bael = lx / 22.5
+    if h_H >= h_min_bael:
+        vH = f"{typ} OK (h={h_H*100:.0f}cm ≥ L/22.5={h_min_bael*100:.1f}cm)"
+    else:
+        vH = (f"{typ} OK-catalogue (h={h_H*100:.0f}cm, "
+              f"L/22.5={h_min_bael*100:.1f}cm — vérifier flèche)")
 
     sig  = Ms * 1e6 / (0.348 * b_mm * d_mm**2)
     vELS = (f"ELS:OK sig={sig:.1f}MPa" if sig <= mat.sigmaBc
@@ -150,10 +156,11 @@ def dim_dalle(dalle: Dalle, mat: Materiaux) -> ResultatDalle:
         Mu_x = mux * qu * dalle.lx**2
         Mu_y = (muy * qu * dalle.lx**2) if dalle.rho > 0.4 else 0.0
         Asx, Asy, vELS = dim_dalle_pleine(Mu_x, Mu_y, e, mat)
-        h_min = dalle.lx / 35
+        # Critère BAEL : dalle pleine h ≥ L/25
+        h_min = dalle.lx / 25
         typH  = f"Pleine e={e*100:.0f}cm"
-        vH    = (f"{typH} OK" if e >= h_min
-                 else f"{typH} REVOIR e_min={h_min*100:.0f}cm")
+        vH    = (f"{typH} OK (e_min={h_min*100:.1f}cm)" if e >= h_min
+                 else f"{typH} REVOIR e_min={h_min*100:.1f}cm (L/25)")
         r = ResultatDalle(
             dalle_id=dalle.id, type_dalle="Pleine", typH=typH, h_out=e,
             Mu_x=Mu_x, Mu_y=Mu_y, As_nerv=Asx, As_rep=Asy,

@@ -36,5 +36,3 @@ Adapté au marché sénégalais :
 - Acier FeE400 (HA400)
 - Classe d'exposition Normal / Côtier (littoral dakarois)
 - Contrainte admissible sol typique Dakar : 150 kN/m²
-
-  <!-- v3.4 -->
