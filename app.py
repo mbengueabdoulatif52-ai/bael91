@@ -53,12 +53,12 @@ with st.sidebar:
     st.divider()
 
     pages = {
-        "🏠 Accueil":       "accueil",
-        "📥 Import & Calcul":"import",
-        "📊 Résultats":     "resultats",
-        "🔷 Visualisation": "visualisation",
-        "🪜 Escalier":      "escalier",
-        "💾 Projets":       "projets",
+        "🏠 Accueil":              "accueil",
+        "📂 Import":               "import",
+        "🪜 Escalier":             "escalier",
+        "🔷 Visualisation & Calcul":"visualisation",
+        "📊 Résultats":            "resultats",
+        "💾 Projets":              "projets",
     }
     for label, key in pages.items():
         btn_type = "primary" if st.session_state.page == key else "secondary"
@@ -178,7 +178,7 @@ if page == "accueil":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "import":
     st.markdown(
-        '<div class="section-header">📥 Import du fichier Excel & Calcul</div>',
+        '<div class="section-header">📂 Import du fichier Excel</div>',
         unsafe_allow_html=True)
 
     st.markdown("""
@@ -186,7 +186,8 @@ elif page == "import":
     1. Remplissez le fichier Excel de saisie (téléchargeable depuis l'Accueil)
     2. Glissez-déposez le fichier ci-dessous
     3. Vérifiez les données importées
-    4. Lancez le calcul
+    4. Allez dans l'onglet **🪜 Escalier** pour configurer les charges d'escalier
+    5. Lancez le calcul depuis l'onglet **🔷 Visualisation & Calcul**
     """)
 
     # ── Upload ─────────────────────────────────────────────────────────────────
@@ -293,55 +294,16 @@ elif page == "import":
                             key="nom_projet_import")
         projet.nom = nom
 
-        # ── Calcul ─────────────────────────────────────────────────────────────
-        st.markdown("#### Étape 4 — Lancer le calcul")
-
-        can_calc = len(projet.noeuds) > 0 and len(projet.barres) > 0
-
-        if not can_calc:
-            st.error("Impossible de calculer : nœuds ou barres manquants.")
-        else:
-            # Vérification topologie
-            calc_niveaux(projet); calc_barres(projet); calc_dalles(projet)
-            topo_errors = valider_topologie(projet)
-            if topo_errors:
-                st.error("**Erreurs de topologie :**")
-                for e in topo_errors:
-                    st.markdown(f"- {e}")
-
-            if st.button("🚀 Lancer le calcul BAEL 91",
-                         type="primary", use_container_width=True,
-                         disabled=bool(topo_errors)):
-                with st.spinner("Calcul BAEL 91 en cours..."):
-                    try:
-                        res = lancer_calcul(projet)
-                        st.session_state.projet   = projet
-                        st.session_state.resultats = res
-
-                        nb_alertes = (
-                            sum(1 for r in res.poutres if r.alerte) +
-                            sum(1 for r in res.poteaux if r.alerte_am)
-                        )
-                        st.success(
-                            f"✅ Calcul terminé — "
-                            f"{len(res.poutres)} poutres · "
-                            f"{len(res.poteaux)} poteaux · "
-                            f"{len(res.dalles)} dalles"
-                            + (f" · ⚠ {nb_alertes} alerte(s)"
-                               if nb_alertes else "")
-                        )
-
-                        # Sauvegarde automatique
-                        sauvegarder_projet(projet)
-
-                        # Redirection
-                        st.session_state.page = "resultats"
-                        st.rerun()
-
-                    except Exception as e:
-                        import traceback
-                        st.error(f"Erreur pendant le calcul : {e}")
-                        st.code(traceback.format_exc())
+        # ── Info → continuer vers Escalier puis Visualisation ────────────────
+        st.divider()
+        st.info("✅ Projet importé. Allez dans **🪜 Escalier** pour configurer "
+                "les charges d'escalier, puis dans **🔷 Visualisation & Calcul** "
+                "pour lancer le calcul.")
+        if st.button("→ Continuer vers l'onglet Escalier",
+                     use_container_width=True):
+            st.session_state.projet = projet
+            st.session_state.page = "escalier"
+            st.rerun()
 
     else:
         # Pas encore de fichier uploadé
@@ -377,15 +339,95 @@ elif page == "resultats":
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# VISUALISATION
+# VISUALISATION & CALCUL
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "visualisation":
+    st.markdown(
+        '<div class="section-header">🔷 Visualisation & Calcul</div>',
+        unsafe_allow_html=True)
+
+    # ── Bouton Calcul ─────────────────────────────────────────────────────────
+    projet = st.session_state.projet
+    if projet and len(projet.noeuds) > 0:
+        # Afficher les escaliers configurés
+        escaliers = st.session_state.get("escaliers", [])
+        if escaliers:
+            with st.expander(
+                f"🪜 {len(escaliers)} escalier(s) configuré(s) — "
+                "charges injectées sur les poutres", expanded=False):
+                for esc in escaliers:
+                    inj = esc.get("gadd", {})
+                    noms_p = []
+                    for bid, gadd in inj.items():
+                        b = next((b for b in projet.barres
+                                  if b.id == bid), None)
+                        if b:
+                            noms_p.append(f"{b.nom} +{gadd:.2f}kN/m")
+                    st.markdown(
+                        f"**{esc['nom']}** : {', '.join(noms_p) or 'aucune poutre'}")
+
+        # Vérification topologie
+        from core.topologie import calc_niveaux, calc_barres, calc_dalles
+        from core import valider_topologie
+        calc_niveaux(projet); calc_barres(projet); calc_dalles(projet)
+        topo_errors = valider_topologie(projet)
+        if topo_errors:
+            st.error("**Erreurs de topologie :**")
+            for e in topo_errors:
+                st.markdown(f"- {e}")
+
+        col_btn, col_info = st.columns([2, 3])
+        with col_btn:
+            if st.button("🚀 Lancer le calcul BAEL 91",
+                         type="primary", use_container_width=True,
+                         disabled=bool(topo_errors)):
+                # Appliquer les G_add des escaliers en mémoire
+                for esc in st.session_state.get("escaliers", []):
+                    for bid, gadd in esc.get("gadd", {}).items():
+                        b = next((b for b in projet.barres
+                                  if b.id == bid), None)
+                        if b:
+                            b.G_add += gadd
+                with st.spinner("Calcul BAEL 91 en cours..."):
+                    try:
+                        res = lancer_calcul(projet)
+                        st.session_state.projet    = projet
+                        st.session_state.resultats = res
+                        nb_alertes = (
+                            sum(1 for r in res.poutres if r.alerte) +
+                            sum(1 for r in res.poteaux if r.alerte_am)
+                        )
+                        st.success(
+                            f"✅ Calcul terminé — "
+                            f"{len(res.poutres)} poutres · "
+                            f"{len(res.poteaux)} poteaux · "
+                            f"{len(res.dalles)} dalles"
+                            + (f" · ⚠ {nb_alertes} alerte(s)"
+                               if nb_alertes else ""))
+                        sauvegarder_projet(projet)
+                        st.session_state.page = "resultats"
+                        st.rerun()
+                    except Exception as e:
+                        import traceback
+                        st.error(f"Erreur pendant le calcul : {e}")
+                        st.code(traceback.format_exc())
+        with col_info:
+            if st.session_state.resultats:
+                st.success("✅ Calcul déjà effectué — relancer pour "
+                           "prendre en compte les modifications")
+            else:
+                st.info("Projet chargé et prêt pour le calcul")
+
+        st.divider()
+    elif not projet:
+        st.warning("Importez d'abord un projet depuis l'onglet **📂 Import**.")
+
     page_visualisation(
         st.session_state.projet,
         st.session_state.resultats
     )
 
-elif st.session_state.page == "escalier":
+elif page == "escalier":
     page_escalier(st.session_state.projet)
 
 
