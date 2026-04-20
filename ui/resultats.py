@@ -154,6 +154,8 @@ def page_resultats(res, projet):
                 "Type":          "Centrée" if s.ex==0 and s.ey==0 else "Excentrique",
                 "ex (m)":        f"{s.ex:.3f}" if s.ex != 0 else "—",
                 "ey (m)":        f"{s.ey:.3f}" if s.ey != 0 else "—",
+                # Note : ex/ey peuvent être signés (signe = sens du décalage)
+                # Note : ex et ey peuvent être négatifs (sens du décalage)
                 "B×L (m)":       f"{s.B:.2f}×{s.L_sem:.2f}",
                 "e (cm)":        f"{s.e_sem*100:.0f}",
                 "Nu (kN)":       f"{s.Nu_ser:.1f}",
@@ -173,7 +175,7 @@ def page_resultats(res, projet):
                         "Direction":      "X",
                         "Vers poteau":    f"C{s.long_X_vers}",
                         "Section":        f"{s.b_long_X*100:.0f}×{s.h_long_X*100:.0f} cm",
-                        "ex (m)":         f"{s.ex:.3f}",
+                        "ex (m)":         f"{s.ex:.3f}",  # signe conservé
                         "Moment (kN.m)":  f"{s.long_X_Mu:.1f}",
                         "As long. (cm²)": f"{s.long_X_As:.2f}",
                         "As chap. (cm²)": f"{s.long_X_As*0.5:.2f}",

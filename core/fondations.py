@@ -56,15 +56,20 @@ def dim_semelle_excentrique(s: Semelle, b_pot: float, h_pot: float,
                              mat: Materiaux) -> Semelle:
     q_adm  = s.q_adm_loc if s.q_adm_loc > 0 else mat.q_adm
     Nu_ser = s.Nu_ser
-    ex, ey = s.ex, s.ey
+    # Utiliser valeurs absolues pour le dimensionnement
+    # Le signe est conservé dans s.ex et s.ey pour la visualisation
+    ex, ey = abs(s.ex), abs(s.ey)
     if Nu_ser <= 0:
         return s
+
+    # Prendre les valeurs absolues pour le dimensionnement
+    ex_abs = abs(ex); ey_abs = abs(ey)
 
     B0 = math.sqrt(Nu_ser * 1.10 / q_adm)
     for _ in range(5):
         B  = _arr(B0, 0.05)
-        ex_eff = min(ex, B / 6) if ex > 0 else 0
-        ey_eff = min(ey, B / 6) if ey > 0 else 0
+        ex_eff = min(ex_abs, B / 6) if ex_abs > 0 else 0
+        ey_eff = min(ey_abs, B / 6) if ey_abs > 0 else 0
         q_m = Nu_ser / (B*B) * (1 + 6*ex_eff/B + 6*ey_eff/B)
         if q_m > q_adm:
             B0 = B0 * math.sqrt(q_m / q_adm)
@@ -74,10 +79,10 @@ def dim_semelle_excentrique(s: Semelle, b_pot: float, h_pot: float,
     s.B = _arr(B0, 0.05); s.L_sem = s.B
     d_deb   = (s.B - b_pot) / 2
     tau_lim = 0.07 * mat.fc28 / mat.gammab
-    s.q_max = Nu_ser / (s.B*s.L_sem) * (1 + 6*min(ex,s.B/6)/s.B
-                                          + 6*min(ey,s.L_sem/6)/s.L_sem)
-    s.q_min = Nu_ser / (s.B*s.L_sem) * (1 - 6*min(ex,s.B/6)/s.B
-                                          - 6*min(ey,s.L_sem/6)/s.L_sem)
+    s.q_max = Nu_ser / (s.B*s.L_sem) * (1 + 6*min(ex_abs,s.B/6)/s.B
+                                          + 6*min(ey_abs,s.L_sem/6)/s.L_sem)
+    s.q_min = Nu_ser / (s.B*s.L_sem) * (1 - 6*min(ex_abs,s.B/6)/s.B
+                                          - 6*min(ey_abs,s.L_sem/6)/s.L_sem)
     d_u_min  = s.q_max * d_deb / (tau_lim * 1000)
     s.e_sem  = _arr(max(d_u_min + mat.c_fond, 0.25), 0.05)
 
@@ -140,24 +145,24 @@ def calc_toutes_semelles(projet, charges_reportees: dict) -> None:
         b_pot = pot.b if pot.b > 0 else 0.25
         h_pot = pot.h if pot.h > 0 else 0.25
 
-        if sem.ex == 0 and sem.ey == 0:
+        if abs(sem.ex) == 0 and abs(sem.ey) == 0:
             dim_semelle_centree(sem, b_pot, h_pot, projet.materiaux)
         else:
             dim_semelle_excentrique(sem, b_pot, h_pot, projet.materiaux)
 
         # ── Longrines — v2 : appel automatique ────────────────────────────────
         # Trouver la longueur de la longrine (distance au poteau voisin)
-        if sem.ex > 0 and sem.long_X_vers > 0:
+        if abs(sem.ex) > 0 and sem.long_X_vers > 0:
             L_lX = _distance_poteaux(pot, sem.long_X_vers, projet)
-            r = dim_longrine(sem.Nu_ser, sem.ex, L_lX,
+            r = dim_longrine(sem.Nu_ser, abs(sem.ex), L_lX,
                              sem.b_long_X, sem.h_long_X, projet.materiaux)
             sem.long_X_Mu = r["Mu"]
             sem.long_X_As = r["As_long"]
             sem.long_X_vM = r["vM"]
 
-        if sem.ey > 0 and sem.long_Y_vers > 0:
+        if abs(sem.ey) > 0 and sem.long_Y_vers > 0:
             L_lY = _distance_poteaux(pot, sem.long_Y_vers, projet)
-            r = dim_longrine(sem.Nu_ser, sem.ey, L_lY,
+            r = dim_longrine(sem.Nu_ser, abs(sem.ey), L_lY,
                              sem.b_long_Y, sem.h_long_Y, projet.materiaux)
             sem.long_Y_Mu = r["Mu"]
             sem.long_Y_As = r["As_long"]

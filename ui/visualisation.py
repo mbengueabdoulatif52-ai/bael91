@@ -97,33 +97,17 @@ def _generer_amorces(projet, Df):
     return noeuds_virtuels, barres_amorces
 
 
-def _centre_semelle(n_base, s, pots_n1, noeud_map):
+def _centre_semelle(n_base, s):
     """
-    Calcule le centre réel de la semelle en tenant compte de l'excentricité.
-    Le sens du décalage est déduit de la direction vers le poteau voisin.
+    Calcule le centre réel de la semelle.
+    Le centre = position du nœud amorce (= position du poteau) + excentricités signées.
+    ex positif → décalage vers X croissants (droite)
+    ex négatif → décalage vers X décroissants (gauche)
+    ey positif → décalage vers Y croissants (haut)
+    ey négatif → décalage vers Y décroissants (bas)
     """
-    cx, cy = n_base.x, n_base.y
-    ex = abs(s.ex)
-    ey = abs(s.ey)
-
-    if ex > 0 and s.long_X_vers > 0:
-        pot_v = pots_n1.get(s.long_X_vers)
-        if pot_v:
-            nv = noeud_map.get(pot_v.ni)
-            if nv:
-                # La semelle déborde du côté OPPOSÉ au poteau voisin
-                # (la longrine tire vers le voisin pour compenser)
-                sens_x = -1 if nv.x > n_base.x else 1
-                cx = n_base.x + sens_x * ex
-
-    if ey > 0 and s.long_Y_vers > 0:
-        pot_v = pots_n1.get(s.long_Y_vers)
-        if pot_v:
-            nv = noeud_map.get(pot_v.ni)
-            if nv:
-                sens_y = -1 if nv.y > n_base.y else 1
-                cy = n_base.y + sens_y * ey
-
+    cx = n_base.x + s.ex   # signe respecté directement
+    cy = n_base.y + s.ey   # signe respecté directement
     return cx, cy
 
 
@@ -432,7 +416,7 @@ def page_visualisation(projet, res=None):
             if not n_base: continue
 
             # Centre réel de la semelle (excentricité corrigée)
-            cx, cy = _centre_semelle(n_base, s, pots_n1, noeud_map)
+            cx, cy = _centre_semelle(n_base, s)
             B  = max(s.B, 0.40)
             L  = max(s.L_sem, 0.40)
             e  = max(s.e_sem, 0.15)
@@ -492,8 +476,8 @@ def page_visualisation(projet, res=None):
 
             # ── Longrines ────────────────────────────────────────────────────
             for direction, As_l, vers_id, e_val, Mu_l in [
-                ("X", s.long_X_As, s.long_X_vers, abs(s.ex), s.long_X_Mu),
-                ("Y", s.long_Y_As, s.long_Y_vers, abs(s.ey), s.long_Y_Mu),
+                ("X", s.long_X_As, s.long_X_vers, s.ex, s.long_X_Mu),
+                ("Y", s.long_Y_As, s.long_Y_vers, s.ey, s.long_Y_Mu),
             ]:
                 if As_l <= 0 or vers_id <= 0: continue
                 pot2 = pots_n1.get(vers_id)
@@ -505,12 +489,12 @@ def page_visualisation(projet, res=None):
                 s2 = next((ss for ss in res.semelles
                            if ss.id_poteau==vers_id), None)
                 if s2:
-                    cx2,cy2 = _centre_semelle(n2,s2,pots_n1,noeud_map)
+                    cx2,cy2 = _centre_semelle(n2,s2)
                 else:
                     cx2,cy2 = n2.x, n2.y
 
                 hover_l = (f"<b>Longrine C{s.id_poteau}→C{vers_id}</b><br>"
-                           f"Direction {direction}  e={e_val:.3f}m<br>"
+                           f"Direction {direction}  e={e_val:+.3f}m<br>"
                            f"M={Mu_l:.1f}kN.m<br>"
                            f"As long.={As_l:.2f}cm²  "
                            f"As chap.={As_l*0.5:.2f}cm²")
@@ -525,8 +509,12 @@ def page_visualisation(projet, res=None):
                                       COL_LONGRINE,0.80)
                     if t: fig.add_trace(t)
 
+                # La longrine relie les nœuds amorces (position des poteaux)
+                # pas les centres des semelles
                 fig.add_trace(go.Scatter3d(
-                    x=[cx,cx2],y=[cy,cy2],z=[z_top,z_top],
+                    x=[n_base.x, n2.x],
+                    y=[n_base.y, n2.y],
+                    z=[z_top, z_top],
                     mode="lines",line=dict(color=COL_LONGRINE,width=6),
                     name="Longrine",legendgroup="longrines",
                     showlegend=first_lon,

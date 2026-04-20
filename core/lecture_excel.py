@@ -314,12 +314,13 @@ def lire_excel(chemin_ou_buffer) -> Tuple[Projet, List[str]]:
             h_lY       = _f(row[9], 0.40)
 
             # Avertissement longrine manquante
-            if ex != 0 and long_X_v == 0:
+            # ex et ey peuvent être négatifs (indique le sens du décalage)
+            if abs(ex) > 0 and long_X_v == 0:
                 erreurs.append(
                     f"Semelle C{id_pot} : ex={ex:.3f}m mais Long_X_vers=0. "
                     "La longrine X ne sera pas calculée."
                 )
-            if ey != 0 and long_Y_v == 0:
+            if abs(ey) > 0 and long_Y_v == 0:
                 erreurs.append(
                     f"Semelle C{id_pot} : ey={ey:.3f}m mais Long_Y_vers=0. "
                     "La longrine Y ne sera pas calculée."
