@@ -248,9 +248,14 @@ def dim_poutre(Mu, Tu, Ms, b, h, L, mat: Materiaux, M_appui=0.0) -> dict:
     # ── Flèche — indicative sur section brute (critère h≥L/16 prioritaire) ────
     vFleche = ""
     if L > 0 and As_long > 0 and d > 0:
-        I_brute = b * h**3 / 12           # m4
-        f_mm    = (5/384) * (Ms * 1e3) * L**3 / (mat.Ec * 1e3 * I_brute) * 1e3
-        f_lim   = max(L * 1000 / 500, 10.0)
+        # Flèche élastique sur section brute (indicative)
+        # Formule : f = (5/48) × Ms × L² / (Ec × I)
+        # Unités : Ms en kN.m, L en m, Ec en kN/m², I en m⁴ → f en m
+        I_brute  = b * h**3 / 12                    # m⁴
+        Ec_kNm2  = mat.Ec * 1e3                     # MPa → kN/m²
+        f_m      = (5/48) * (Ms * L**2) / (Ec_kNm2 * I_brute)
+        f_mm     = f_m * 1000                        # m → mm
+        f_lim    = max(L * 1000 / 500, 10.0)         # mm
         if f_mm <= f_lim:
             vFleche = f"f≈{f_mm:.1f}/{f_lim:.0f}mm (ind.)"
         else:
