@@ -245,12 +245,24 @@ def _formulaire_escalier(projet, esc_init=None, key_prefix="new"):
     # Sélection des poutres palières
     st.markdown("**Sélection des poutres palières**")
 
-    # Filtre par niveau
+    # Clé de stockage des sélections intermédiaires dans session_state
+    ss_key = f"_psel_{key_prefix}"
+    if ss_key not in st.session_state:
+        # Initialiser depuis l'escalier existant (édition) ou vide
+        st.session_state[ss_key] = esc.get('poutres_sel', {}).copy()
+
+    # Filtre par niveau — persisté dans session_state
+    ss_niv_key = f"_niv_{key_prefix}"
     niveaux_dispo = sorted(set(b.niveau for b in projet.barres
                                if b.type_elem == "poutre"))
     niv_labels = ["Tous"] + [f"Niveau {n}" for n in niveaux_dispo]
+    niv_cur = st.session_state.get(ss_niv_key, "Tous")
+    niv_idx = niv_labels.index(niv_cur) if niv_cur in niv_labels else 0
     niv_sel = st.selectbox("Filtrer par niveau",
-                           niv_labels, key=f"{key_prefix}_niv")
+                           niv_labels, index=niv_idx,
+                           key=f"{key_prefix}_niv")
+    # Sauvegarder le niveau sélectionné
+    st.session_state[ss_niv_key] = niv_sel
     niv_filtre = None if niv_sel == "Tous" else int(niv_sel.split()[-1])
 
     poutres_filtrées = [b for b in projet.barres
@@ -260,7 +272,6 @@ def _formulaire_escalier(projet, esc_init=None, key_prefix="new"):
             for b in poutres_filtrées}
     opts_list = ["— Aucune —"] + list(opts.keys())
 
-    poutres_sel = esc.get('poutres_sel', {})
     roles = (["depart","intermediaire","arrivee"]
              if type_esc == "en_U"
              else ["depart","arrivee"])
@@ -272,12 +283,18 @@ def _formulaire_escalier(projet, esc_init=None, key_prefix="new"):
 
     new_poutres_sel = {}
     for role in roles:
-        bid_cur = poutres_sel.get(role)
+        # Lire la sélection précédente depuis session_state
+        bid_cur = st.session_state[ss_key].get(role)
         cur_label = next((l for l,v in opts.items() if v==bid_cur), "— Aucune —")
+        # Si la poutre sélectionnée n'est plus dans la liste filtrée
+        # (changement de niveau) → rester sur "— Aucune —"
         idx = opts_list.index(cur_label) if cur_label in opts_list else 0
         sel = st.selectbox(labels_role[role], opts_list,
                            index=idx, key=f"{key_prefix}_{role}")
-        new_poutres_sel[role] = opts.get(sel)
+        bid_sel = opts.get(sel)
+        new_poutres_sel[role] = bid_sel
+        # Sauvegarder immédiatement dans session_state
+        st.session_state[ss_key][role] = bid_sel
 
     # Assembler le dict escalier
     new_esc = {
