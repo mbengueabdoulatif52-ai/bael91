@@ -74,8 +74,7 @@ def page_resultats(res, projet):
                 "Mu_y (kN.m)": f"{r.Mu_y:.2f}" if r.Mu_y > 0 else "—",
                 "As nerv. (cm²)":  f"{r.As_nerv:.2f}",
                 "As rép. (cm²)":   f"{r.As_rep:.2f}",
-                "ELU":    _badge(r.vH),
-                "ELS":    _badge(r.vELS),
+                "Statut":  _statut_dalle(r),
             } for r in res.dalles])
             st.dataframe(df_d, use_container_width=True, hide_index=True)
 
@@ -108,8 +107,7 @@ def page_resultats(res, projet):
                         "As chap. (cm²)": f"{r.As_chap:.2f}" if r.As_chap > 0 else "—",
                         "As chaîn. (cm²)": f"{r.As_chaine:.2f}" if r.As_chaine > 0 else "—",
                         "At/st (cm²/m)": f"{r.At_st:.2f}",
-                        "ELU":           _badge(r.vFlex),
-                        "ELS/Flèche":    _badge(r.vFleche),
+                        "Statut":        _statut_poutre(r),
                     } for r in poutres_niv])
                     st.dataframe(df_p, use_container_width=True, hide_index=True)
 
@@ -137,7 +135,7 @@ def page_resultats(res, projet):
                         "As (cm²)":  f"{r.As:.2f}",
                         "α":         f"{r.alpha:.2f}",
                         "λ":         f"{r.lam:.0f}",
-                        "Vérif":     _badge(r.vL),
+                        "Statut":    _statut_poteau(r, projet),
                     } for r in pots_niv])
                     st.dataframe(df_c, use_container_width=True, hide_index=True)
 
@@ -167,7 +165,7 @@ def page_resultats(res, projet):
                 "q_max (kN/m²)": f"{s.q_max:.0f}",
                 "Asx (cm²/m)":   f"{s.Asx:.2f}",
                 "Amorces":       f"4HA{s.phi_amorce}",
-                "Statut":        "✅" if not s.alerte else f"⚠ {s.alerte}",
+                "Statut":        _statut_semelle(s, projet.materiaux.q_adm),
             } for s in res.semelles])
             st.dataframe(df_f, use_container_width=True, hide_index=True)
 
@@ -261,6 +259,85 @@ def _badge(texte: str) -> str:
         return f"✅ {texte}"
     return texte
 
+
+
+import math as _math
+
+def _statut_poteau(r, projet):
+    """Statut unifié pour un poteau — messages explicites avec valeurs."""
+    b = next((b for b in projet.barres if b.id == r.barre_id), None)
+    alertes = []
+    if b:
+        As_max = 0.05 * b.b * 1000 * b.h * 1000 / 100
+        if r.As > As_max:
+            alertes.append(
+                f"❌ As={r.As:.2f} > As_max={As_max:.2f}cm² "
+                f"(section trop petite)")
+    if r.lam > 70:
+        alertes.append(f"❌ λ={r.lam:.0f} > 70 (hors méthode forfaitaire)")
+    return " | ".join(alertes) if alertes else "✅ OK"
+
+
+def _statut_poutre(r):
+    """Statut unifié pour une poutre — messages explicites avec valeurs."""
+    alertes = []
+    # Flexion
+    if r.mu_r > 0.392:
+        alertes.append(
+            f"❌ μ={r.mu_r:.3f} > 0.392 (béton insuffisant, revoir b×h)")
+    # Cisaillement
+    if r.vCis and "REVOIR" in r.vCis.upper():
+        alertes.append(f"❌ Cisaillement excessif ({r.vCis})")
+    # Flèche — extraire les valeurs du message vFleche
+    if r.vFleche and "REVOIR" in r.vFleche.upper():
+        import re as _re
+        m = _re.search(r"f≈([\d.]+)>([\d.]+)mm", r.vFleche)
+        if m:
+            alertes.append(
+                f"⚠ Flèche f≈{m.group(1)}mm > {m.group(2)}mm (indicatif)")
+        else:
+            alertes.append(f"⚠ Flèche excessive ({r.vFleche})")
+    # Hauteur minimale
+    if r.vH and "REVOIR" in r.vH.upper():
+        alertes.append(f"⚠ {r.vH}")
+    return " | ".join(alertes) if alertes else "✅ OK"
+
+
+def _statut_dalle(r):
+    """Statut unifié pour une dalle — messages explicites."""
+    alertes = []
+    if r.alerte:
+        # Flexion
+        if hasattr(r, 'mu_r') and r.mu_r > 0.392:
+            alertes.append(
+                f"❌ μ={r.mu_r:.3f} > 0.392 (section insuffisante)")
+        elif r.vFlex and "REVOIR" in r.vFlex.upper():
+            alertes.append(f"❌ Section insuffisante ({r.vFlex})")
+        # Hauteur hourdis
+        if hasattr(r, 'vH') and r.vH and "REVOIR" in r.vH.upper():
+            alertes.append(f"⚠ {r.vH}")
+        # Fallback
+        if not alertes:
+            alertes.append("⚠ REVOIR")
+    return " | ".join(alertes) if alertes else "✅ OK"
+
+
+def _statut_semelle(s, q_adm):
+    """Statut unifié pour une semelle — messages explicites."""
+    alertes = []
+    # Soulèvement (q_min < 0) — uniquement semelles excentriques
+    if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
+        alertes.append(
+            f"❌ Soulèvement (q_min={s.q_min:.0f}kN/m² < 0) "
+            f"— revoir excentricité")
+    # Pression sol dépassée
+    if s.q_max > q_adm * 1.01:
+        alertes.append(
+            f"❌ q_max={s.q_max:.0f} > q_adm={q_adm:.0f} kN/m²")
+    # Alerte générique existante
+    if s.alerte and not alertes:
+        alertes.append(f"⚠ {s.alerte}")
+    return " | ".join(alertes) if alertes else "✅ OK"
 
 def _surface_projet(projet) -> float:
     """Estime la surface totale du plancher."""
