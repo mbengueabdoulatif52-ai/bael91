@@ -7,6 +7,8 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import re as _re_xls
+
 try:
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -14,6 +16,33 @@ try:
     OPENPYXL_OK = True
 except ImportError:
     OPENPYXL_OK = False
+
+
+def _statut_pot_xls(r, projet):
+    """Statut poteau pour export Excel — messages explicites."""
+    b = next((b for b in projet.barres if b.id == r.barre_id), None)
+    alertes = []
+    if r.alerte_am:
+        vS = r.vS or ""
+        if "As=" in vS and "As_max" in vS:
+            if b:
+                As_max = 0.05 * b.b * 1000 * b.h * 1000 / 100
+                alertes.append(
+                    f"As={r.As:.2f}>As_max={As_max:.2f}cm2 augmenter b/h")
+        elif "sig=" in vS and ">" in vS:
+            m = _re_xls.search(r"sig=([0-9.]+)>([0-9.]+)MPa", vS)
+            if m:
+                alertes.append(
+                    f"sig={m.group(1)}>fbu={m.group(2)}MPa insuff.")
+            else:
+                alertes.append("Contrainte beton depassee")
+        elif "REVOIR" in vS.upper():
+            alertes.append(vS)
+        else:
+            alertes.append("Recouvrement non conforme (>50%)")
+    if r.lam > 70:
+        alertes.append(f"lam={r.lam:.0f}>70 hors forfaitaire")
+    return " | ".join(alertes) if alertes else "OK"
 
 
 def exporter_excel(res, projet) -> bytes:
@@ -106,7 +135,7 @@ def exporter_excel(res, projet) -> bytes:
         vals = [niv, r.etiq, r.section, round(r.Nu,1), round(r.As,2),
                 round(r.alpha,2), round(r.lam,0),
                 r.vL,
-                "⚠ REVOIR" if r.alerte_am else "OK"]
+                _statut_pot_xls(r, projet)]
         for c, v in enumerate(vals, 1):
             style_dat(ws2.cell(i, c), v, bg)
         ws2.row_dimensions[i].height = 14

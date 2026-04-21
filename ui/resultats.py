@@ -267,32 +267,39 @@ def _statut_poteau(r, projet):
     b = next((b for b in projet.barres if b.id == r.barre_id), None)
     alertes = []
 
-    # Lire directement r.vS qui contient le message exact du moteur
-    if r.alerte_am and r.vS:
-        if "As=" in r.vS and "As_max" in r.vS:
-            # As > As_max
+    if r.alerte_am:
+        vS = r.vS or ""
+        if "As=" in vS and "As_max" in vS:
+            # As > As_max (5% section)
             if b:
                 As_max = 0.05 * b.b * 1000 * b.h * 1000 / 100
                 alertes.append(
-                    f"❌ As={r.As:.2f} > As_max={As_max:.2f}cm² "
-                    f"— augmenter b ou h")
-        elif "sig=" in r.vS:
+                    f"\u274c As={r.As:.2f} > As_max={As_max:.2f}cm\u00b2 "
+                    f"\u2014 augmenter b ou h")
+        elif "sig=" in vS and ">" in vS:
             # Contrainte béton dépassée
-            m = _re_mod.search(r"sig=([\d.]+)>([\d.]+)MPa", r.vS)
+            import re
+            m = re.search("sig=([0-9.]+)>([0-9.]+)MPa", vS)
             if m:
                 alertes.append(
-                    f"❌ σ_béton={m.group(1)} > fbu={m.group(2)}MPa "
-                    f"— section insuffisante")
+                    f"\u274c \u03c3_b\u00e9ton={m.group(1)} > "
+                    f"fbu={m.group(2)}MPa \u2014 section insuffisante")
             else:
-                alertes.append(f"❌ {r.vS}")
+                alertes.append(f"\u274c Contrainte b\u00e9ton d\u00e9pass\u00e9e")
+        elif "REVOIR" in vS.upper():
+            alertes.append(f"\u274c {vS}")
         else:
-            alertes.append(f"❌ {r.vS}")
+            # vS = "Sect:OK" ou similaire → alerte de recouvrement
+            alertes.append(
+                f"\u26a0 Recouvrement non conforme "
+                f"(variation As > 50% vs niveau sup.)")
 
     if r.lam > 70:
-        alertes.append(f"❌ λ={r.lam:.0f} > 70 (hors méthode forfaitaire)")
+        alertes.append(
+            f"\u274c \u03bb={r.lam:.0f} > 70 "
+            f"(hors m\u00e9thode forfaitaire)")
 
-    return " | ".join(alertes) if alertes else "✅ OK"
-
+    return " | ".join(alertes) if alertes else "\u2705 OK"
 
 def _statut_poutre(r):
     """Statut unifié pour une poutre — messages explicites avec valeurs."""
