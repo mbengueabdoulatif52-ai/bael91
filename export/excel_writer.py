@@ -45,6 +45,53 @@ def _statut_pot_xls(r, projet):
     return " | ".join(alertes) if alertes else "OK"
 
 
+
+def _statut_pou_xls(r):
+    """Statut poutre pour export Excel."""
+    import re
+    alertes = []
+    if r.mu_r > 0.392:
+        alertes.append(f"mu={r.mu_r:.3f}>0.392 beton insuff. revoir bxh")
+    if r.vCis and "REVOIR" in r.vCis.upper():
+        alertes.append(f"Cisaillement excessif")
+    if r.vFleche and "REVOIR" in r.vFleche.upper():
+        m = re.search(r"f≈([0-9.]+)>([0-9.]+)mm", r.vFleche)
+        if m:
+            alertes.append(f"Fleche f={m.group(1)}mm>{m.group(2)}mm")
+        else:
+            alertes.append("Fleche excessive")
+    if r.vH and "REVOIR" in r.vH.upper():
+        alertes.append(f"h insuff. ({r.vH})")
+    return " | ".join(alertes) if alertes else "OK"
+
+
+def _statut_dal_xls(r):
+    """Statut dalle pour export Excel."""
+    alertes = []
+    if r.alerte:
+        if hasattr(r, 'mu_r') and r.mu_r > 0.392:
+            alertes.append(f"mu={r.mu_r:.3f}>0.392 section insuff.")
+        elif r.vFlex and "REVOIR" in r.vFlex.upper():
+            alertes.append(f"Section insuff. ({r.vFlex})")
+        if hasattr(r, 'vH') and r.vH and "REVOIR" in r.vH.upper():
+            alertes.append(f"h insuff. ({r.vH})")
+        if not alertes:
+            alertes.append("REVOIR")
+    return " | ".join(alertes) if alertes else "OK"
+
+
+def _statut_sem_xls(s, q_adm):
+    """Statut semelle pour export Excel."""
+    alertes = []
+    if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
+        alertes.append(f"Soulevement q_min={s.q_min:.0f}kN/m2")
+    if s.q_max > q_adm * 1.01:
+        alertes.append(f"q_max={s.q_max:.0f}>q_adm={q_adm:.0f}kN/m2")
+    if s.alerte and not alertes:
+        alertes.append(str(s.alerte))
+    return " | ".join(alertes) if alertes else "OK"
+
+
 def exporter_excel(res, projet) -> bytes:
     """Exporte les résultats dans un fichier Excel. Retourne les bytes."""
     if not OPENPYXL_OK:
@@ -97,8 +144,8 @@ def exporter_excel(res, projet) -> bytes:
     ws1 = wb.create_sheet("Poutres")
     hdrs = ["Niv.", "Élément", "Section", "Mu (kN.m)", "Tu (kN)",
             "As long. (cm²)", "As chap. (cm²)", "As chaîn. (cm²)",
-            "At/st (cm²/m)", "ELU", "ELS/Flèche", "Statut"]
-    cols_w = [5, 16, 10, 10, 9, 12, 12, 12, 12, 20, 20, 8]
+            "At/st (cm²/m)", "Statut"]
+    cols_w = [5, 16, 10, 10, 9, 12, 12, 12, 12, 40]
     for c, (h, w) in enumerate(zip(hdrs, cols_w), 1):
         style_hdr(ws1.cell(1, c), h)
         ws1.column_dimensions[get_column_letter(c)].width = w
@@ -112,8 +159,7 @@ def exporter_excel(res, projet) -> bytes:
                 round(r.As_long,2), round(r.As_chap,2) if r.As_chap else "—",
                 round(r.As_chaine,2) if r.As_chaine else "—",
                 round(r.At_st,2),
-                r.vFlex, r.vFleche,
-                "⚠ REVOIR" if r.alerte else "OK"]
+                _statut_pou_xls(r)]
         for c, v in enumerate(vals, 1):
             style_dat(ws1.cell(i, c), v, bg)
         ws1.row_dimensions[i].height = 14
@@ -143,7 +189,7 @@ def exporter_excel(res, projet) -> bytes:
     # ── Feuille Dalles ────────────────────────────────────────────────────────
     ws_d = wb.create_sheet("Dalles")
     hdrs_d = ["ID", "Type", "h/e", "Mu_x (kN.m)", "Mu_y (kN.m)",
-              "As nerv. (cm²/m)", "As rép. (cm²/m)", "ELU", "ELS"]
+              "As nerv. (cm²/m)", "As rép. (cm²/m)", "Statut"]
     for c, h in enumerate(hdrs_d, 1):
         style_hdr(ws_d.cell(1, c), h, "1F3864")
         ws_d.column_dimensions[get_column_letter(c)].width = 14
@@ -154,8 +200,7 @@ def exporter_excel(res, projet) -> bytes:
                 round(r.Mu_x, 2),
                 round(r.Mu_y, 2) if r.Mu_y > 0 else "—",
                 round(r.As_nerv, 2), round(r.As_rep, 2),
-                "⚠ REVOIR" if "REVOIR" in r.vH else "OK",
-                "⚠ REVOIR" if "REVOIR" in r.vELS else "OK"]
+                _statut_dal_xls(r)]
         for c, v in enumerate(vals, 1):
             style_dat(ws_d.cell(i, c), v, bg)
         ws_d.row_dimensions[i].height = 14
@@ -180,7 +225,7 @@ def exporter_excel(res, projet) -> bytes:
                 round(s.Nu_ser,1), round(s.q_max,0),
                 round(s.Asx,2), round(s.Asy,2),
                 f"{s.nb_amorce}HA{s.phi_amorce} ls={s.ls_amorce*100:.0f}cm",
-                s.alerte if s.alerte else "OK"]
+                _statut_sem_xls(s, projet.materiaux.q_adm)]
         for c, v in enumerate(vals, 1):
             style_dat(ws3.cell(i, c), v, bg)
 
