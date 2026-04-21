@@ -175,7 +175,7 @@ def lancer_calcul(projet: Projet) -> ResultatsProjet:
         res.niveaux_calcules.append(niv)
 
     # ── Fondations ────────────────────────────────────────────────────────────
-    calc_toutes_semelles(projet, charges)
+    calc_toutes_semelles(projet, charges, res.poteaux)
     res.semelles = projet.semelles
     res.charges_reportees = charges
 

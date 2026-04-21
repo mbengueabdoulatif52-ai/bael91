@@ -137,7 +137,6 @@ def page_resultats(res, projet):
                         "As (cm²)":  f"{r.As:.2f}",
                         "α":         f"{r.alpha:.2f}",
                         "λ":         f"{r.lam:.0f}",
-                        "Amorces":   f"4HA{r.phi_am} ls={r.ls_am*100:.0f}cm",
                         "Vérif":     _badge(r.vL),
                     } for r in pots_niv])
                     st.dataframe(df_c, use_container_width=True, hide_index=True)
@@ -148,9 +147,15 @@ def page_resultats(res, projet):
             st.info("Aucune semelle calculée.")
         else:
             # ── Tableau semelles ───────────────────────────────────────────────
+            # Dictionnaire nom saisi → tous poteaux (tous niveaux)
+            noms_pots = {b.id: b.nom for b in projet.barres
+                         if b.type_elem == "poteau"}
+            def _nom_pot(bid):
+                return noms_pots.get(bid, f"C{bid}") if bid else "—"
+
             st.markdown("#### Semelles isolées")
             df_f = pd.DataFrame([{
-                "Poteau":        f"C{s.id_poteau}",
+                "Poteau":        _nom_pot(s.id_poteau),
                 "Type":          "Centrée" if s.ex==0 and s.ey==0 else "Excentrique",
                 "ex (m)":        f"{s.ex:.3f}" if s.ex != 0 else "—",
                 "ey (m)":        f"{s.ey:.3f}" if s.ey != 0 else "—",
@@ -171,9 +176,9 @@ def page_resultats(res, projet):
             for s in res.semelles:
                 if s.long_X_As > 0:
                     rows_long.append({
-                        "Poteau":         f"C{s.id_poteau}",
+                        "Poteau":         _nom_pot(s.id_poteau),
                         "Direction":      "X",
-                        "Vers poteau":    f"C{s.long_X_vers}",
+                        "Vers poteau":    _nom_pot(s.long_X_vers),
                         "Section":        f"{s.b_long_X*100:.0f}×{s.h_long_X*100:.0f} cm",
                         "ex (m)":         f"{s.ex:.3f}",  # signe conservé
                         "Moment (kN.m)":  f"{s.long_X_Mu:.1f}",
@@ -183,9 +188,9 @@ def page_resultats(res, projet):
                     })
                 if s.long_Y_As > 0:
                     rows_long.append({
-                        "Poteau":         f"C{s.id_poteau}",
+                        "Poteau":         _nom_pot(s.id_poteau),
                         "Direction":      "Y",
-                        "Vers poteau":    f"C{s.long_Y_vers}",
+                        "Vers poteau":    _nom_pot(s.long_Y_vers),
                         "Section":        f"{s.b_long_Y*100:.0f}×{s.h_long_Y*100:.0f} cm",
                         "ey (m)":         f"{s.ey:.3f}",
                         "Moment (kN.m)":  f"{s.long_Y_Mu:.1f}",
@@ -209,7 +214,7 @@ def page_resultats(res, projet):
                                  if (s.ex > 0 or s.ey > 0)
                                  and s.long_X_vers == 0 and s.long_Y_vers == 0]
                 if exc_sans_long:
-                    ids = ", ".join(f"C{s.id_poteau}" for s in exc_sans_long)
+                    ids = ", ".join(_nom_pot(s.id_poteau) for s in exc_sans_long)
                     st.warning(
                         f"⚠ Semelles excentriques détectées ({ids}) sans longrine "
                         "définie. Renseignez le poteau voisin dans la feuille "

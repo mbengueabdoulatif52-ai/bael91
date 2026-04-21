@@ -219,14 +219,18 @@ def _pdf_dejavu(res, projet, font_r, font_b, font_i) -> bytes:
         _sous_titre(pdf, f"Niveau {niv}")
         _tab(pdf,
              ["El\u00e9ment", "Section", "Nu kN", "As cm2",
-              "\u03b1", "\u03bb", "Amorces", "V\u00e9rif"],
+              "\u03b1", "\u03bb", "V\u00e9rif"],
              [[r.etiq, r.section,
                f"{r.Nu:.0f}", f"{r.As:.2f}",
                f"{r.alpha:.3f}", f"{r.lam:.0f}",
-               f"4HA{r.phi_am}",
                "OK" if "REVOIR" not in r.vL else "!"]
               for r in pots_niv],
-             [26, 14, 14, 12, 12, 10, 18, 12])
+             [26, 14, 14, 12, 12, 10, 18])
+
+    # Dictionnaire nom poteau (tous niveaux)
+    noms_pots_pdf = {b.id: b.nom for b in projet.barres
+                     if b.type_elem == "poteau"}
+    def _np_pdf(bid): return noms_pots_pdf.get(bid, f"C{bid}") if bid else "—"
 
     # ── Fondations ────────────────────────────────────────────────────────────
     if res.semelles:
@@ -235,7 +239,7 @@ def _pdf_dejavu(res, projet, font_r, font_b, font_i) -> bytes:
         _tab(pdf,
              ["Poteau", "Type", "B\u00d7L m", "e cm",
               "Nu kN", "q_max kN/m2", "Asx cm2/m", "Statut"],
-             [[f"C{s.id_poteau}",
+             [[_np_pdf(s.id_poteau),
                "Centr\u00e9e" if s.ex == 0 and s.ey == 0 else "Excentr.",
                f"{s.B:.2f}\u00d7{s.L_sem:.2f}",
                f"{s.e_sem*100:.0f}",
@@ -262,7 +266,7 @@ def _pdf_dejavu(res, projet, font_r, font_b, font_i) -> bytes:
             for s in long_sems:
                 if s.long_X_As > 0:
                     rows_l.append([
-                        f"C{s.id_poteau}",
+                        _np_pdf(s.id_poteau),
                         "X",
                         f"vers C{s.long_X_vers}",
                         f"{s.b_long_X*100:.0f}x{s.h_long_X*100:.0f}cm",
@@ -273,7 +277,7 @@ def _pdf_dejavu(res, projet, font_r, font_b, font_i) -> bytes:
                     ])
                 if s.long_Y_As > 0:
                     rows_l.append([
-                        f"C{s.id_poteau}",
+                        _np_pdf(s.id_poteau),
                         "Y",
                         f"vers C{s.long_Y_vers}",
                         f"{s.b_long_Y*100:.0f}x{s.h_long_Y*100:.0f}cm",
@@ -292,7 +296,7 @@ def _pdf_dejavu(res, projet, font_r, font_b, font_i) -> bytes:
                         if (s.ex > 0 or s.ey > 0)
                         and s.long_X_vers == 0 and s.long_Y_vers == 0]
             if exc_sans:
-                ids = ", ".join(f"C{s.id_poteau}" for s in exc_sans)
+                ids = ", ".join(_np_pdf(s.id_poteau) for s in exc_sans)
                 pdf.set_font("DejaVu", "I", 8)
                 pdf.set_fill_color(255, 220, 180)
                 pdf.multi_cell(0, 5,

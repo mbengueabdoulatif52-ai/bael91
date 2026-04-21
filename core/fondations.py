@@ -43,9 +43,7 @@ def dim_semelle_centree(s: Semelle, b_pot: float, h_pot: float,
     else:
         s.Asx = s.Asy = 0.5
 
-    # Amorces
-    s.phi_amorce, s.nb_amorce = _choisir_amorces(s.Asx, b_pot, h_pot)
-    s.ls_amorce  = 40 * s.phi_amorce / 1000
+    # Amorces — calculées dans calc_toutes_semelles depuis le ferraillage poteau
 
     s.alerte = (f"REVOIR q={s.q_max:.0f}>{q_adm:.0f}kN/m²"
                 if s.q_max > q_adm * 1.01 else "")
@@ -95,8 +93,7 @@ def dim_semelle_excentrique(s: Semelle, b_pot: float, h_pot: float,
     else:
         s.Asx = s.Asy = 0.5
 
-    s.phi_amorce, s.nb_amorce = _choisir_amorces(s.Asx, b_pot, h_pot)
-    s.ls_amorce = 40 * s.phi_amorce / 1000
+    # Amorces — calculées dans calc_toutes_semelles depuis le ferraillage poteau
     s.alerte = (f"REVOIR q={s.q_max:.0f}>{q_adm:.0f}kN/m²"
                 if s.q_max > q_adm * 1.01 else "")
     return s
@@ -123,14 +120,24 @@ def dim_longrine(Nu_ser: float, e_exc: float, L_long: float,
             "vM": vM, "Mu": M_red}
 
 
-def calc_toutes_semelles(projet, charges_reportees: dict) -> None:
+def calc_toutes_semelles(projet, charges_reportees: dict,
+                        res_poteaux=None) -> None:
     """
     Dimensionne toutes les semelles.
-    v2 : appel automatique de dim_longrine si ex>0 ou ey>0.
+    v3 : amorces calculées depuis le ferraillage réel du poteau niveau 1.
     """
     from .topologie import index_noeud
     poteaux_n1 = [b for b in projet.barres
                   if b.type_elem == "poteau" and b.niveau == 1]
+
+    # Index As des poteaux niveau 1 depuis les résultats
+    # res_poteaux : liste de ResultatPoteau
+    as_poteaux_n1 = {}
+    if res_poteaux:
+        for rp in res_poteaux:
+            b = next((b for b in poteaux_n1 if b.id == rp.barre_id), None)
+            if b:
+                as_poteaux_n1[b.id] = rp.As
 
     for sem in projet.semelles:
         pot = next((b for b in poteaux_n1 if b.id == sem.id_poteau), None)
@@ -149,6 +156,13 @@ def calc_toutes_semelles(projet, charges_reportees: dict) -> None:
             dim_semelle_centree(sem, b_pot, h_pot, projet.materiaux)
         else:
             dim_semelle_excentrique(sem, b_pot, h_pot, projet.materiaux)
+
+        # Amorces : ferraillage réel du poteau niveau 1
+        # Si pas de résultats disponibles → utiliser As_min
+        As_pot = as_poteaux_n1.get(pot.id,
+                 0.002 * b_pot*1000 * h_pot*1000 / 100)
+        sem.phi_amorce, sem.nb_amorce = _choisir_amorces(As_pot, b_pot, h_pot)
+        sem.ls_amorce = 40 * sem.phi_amorce / 1000  # ls = 40φ (BAEL)
 
         # ── Longrines — v2 : appel automatique ────────────────────────────────
         # Trouver la longueur de la longrine (distance au poteau voisin)
@@ -173,13 +187,24 @@ def calc_toutes_semelles(projet, charges_reportees: dict) -> None:
 def _arr(val: float, pas: float) -> float:
     return math.ceil(val / pas) * pas
 
-def _choisir_amorces(As_total, b_pot, h_pot):
-    As_p = (0.002 * b_pot * 1000 * h_pot * 1000 / 100) / 4
-    phi  = 8
-    for p in [20, 16, 12, 10]:
-        if As_p > math.pi * (p/20)**2:
-            phi = p; break
-    return phi, 4
+def _choisir_amorces(As_poteau_cm2, b_pot, h_pot):
+    """
+    Choisit phi et nb_barres tels que nb × As_barre >= As_poteau.
+    Les amorces = continuité des barres du poteau (même section totale).
+    Gamme disponible à Dakar : HA8, HA10, HA12, HA14, HA16, HA20, HA25.
+    On commence par 4 barres (barres d'angle) et on augmente si nécessaire.
+    """
+    gamme = [8, 10, 12, 14, 16, 20, 25]
+    As_min = max(As_poteau_cm2,
+                 0.002 * b_pot * 1000 * h_pot * 1000 / 100)
+
+    for nb in [4, 6, 8]:
+        for p in gamme:
+            As_tot = nb * math.pi * (p / 20) ** 2
+            if As_tot >= As_min:
+                return p, nb
+
+    return 25, 8  # fallback : 8HA25
 
 def _distance_poteaux(pot_base, id_vers: int, projet) -> float:
     """Distance entre deux poteaux (longueur de la longrine)."""

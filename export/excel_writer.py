@@ -92,7 +92,7 @@ def exporter_excel(res, projet) -> bytes:
     # ── Feuille Poteaux ───────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Poteaux")
     hdrs2 = ["Niv.", "Élément", "Section", "Nu (kN)", "As (cm²)",
-             "α", "λ", "Amorces", "Vérif. ELU", "Statut"]
+             "α", "λ", "Vérif. ELU", "Statut"]
     cols_w2 = [5, 16, 10, 10, 10, 7, 7, 18, 18, 8]
     for c, (h, w) in enumerate(zip(hdrs2, cols_w2), 1):
         style_hdr(ws2.cell(1, c), h, "375623")
@@ -105,9 +105,8 @@ def exporter_excel(res, projet) -> bytes:
         bg = "FCE4D6" if r.alerte_am else "E2EFDA"
         vals = [niv, r.etiq, r.section, round(r.Nu,1), round(r.As,2),
                 round(r.alpha,2), round(r.lam,0),
-                f"4HA{r.phi_am} ls={r.ls_am*100:.0f}cm",
                 r.vL,
-                "⚠ Amorces" if r.alerte_am else "OK"]
+                "⚠ REVOIR" if r.alerte_am else "OK"]
         for c, v in enumerate(vals, 1):
             style_dat(ws2.cell(i, c), v, bg)
         ws2.row_dimensions[i].height = 14
@@ -132,6 +131,11 @@ def exporter_excel(res, projet) -> bytes:
             style_dat(ws_d.cell(i, c), v, bg)
         ws_d.row_dimensions[i].height = 14
 
+    # Dictionnaire nom poteau (tous niveaux)
+    noms_pots = {b.id: b.nom for b in projet.barres
+                 if b.type_elem == "poteau"}
+    def _np(bid): return noms_pots.get(bid, f"C{bid}") if bid else "—"
+
     # ── Feuille Fondations ────────────────────────────────────────────────────
     ws3 = wb.create_sheet("Fondations")
     hdrs3 = ["Poteau", "Type", "B (m)", "L (m)", "e (cm)",
@@ -141,7 +145,7 @@ def exporter_excel(res, projet) -> bytes:
         ws3.column_dimensions[get_column_letter(c)].width = 12
     for i, s in enumerate(res.semelles, 2):
         bg = "FCE4D6" if s.alerte else "FDF0E4"
-        vals = [f"C{s.id_poteau}",
+        vals = [_np(s.id_poteau),
                 "Centrée" if s.ex==0 and s.ey==0 else "Excentrique",
                 round(s.B,2), round(s.L_sem,2), round(s.e_sem*100,0),
                 round(s.Nu_ser,1), round(s.q_max,0),
