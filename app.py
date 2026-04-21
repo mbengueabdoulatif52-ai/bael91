@@ -1,430 +1,477 @@
 """
-ui/saisie.py — Pages de saisie des données
-Corrections v1.1 :
-  - Sauvegarde automatique à chaque modification
-  - Bouton ➕ dans toutes les pages même si liste vide
-  - Pas de perte de données lors de la navigation
+app.py — Application Streamlit BAEL 91
+v3.1 : Option C — import Excel de saisie
 """
 import streamlit as st
-import pandas as pd
-from pathlib import Path
+import os
 import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from core import Projet, Noeud, Barre, Dalle, Semelle
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
 
+st.set_page_config(
+    page_title="BAEL 91 — Dimensionnement béton armé",
+    page_icon="🏗️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-def page_saisie(section: str, projet: Projet):
-    handlers = {
-        "materiaux":  _saisie_materiaux,
-        "noeuds":     _saisie_noeuds,
-        "barres":     _saisie_barres,
-        "dalles":     _saisie_dalles,
-        "fondations": _saisie_fondations,
+st.markdown("""<style>
+.main-title{font-size:1.8rem;font-weight:700;color:#1F3864;margin-bottom:.2rem}
+.sub-title{font-size:1rem;color:#666;margin-bottom:1.5rem}
+.section-header{background:#1F3864;color:white;padding:6px 14px;
+    border-radius:6px;font-weight:600;margin:1rem 0 .5rem}
+.metric-card{background:#F0F4FA;border-radius:8px;
+    padding:12px 16px;text-align:center}
+.metric-val{font-size:1.6rem;font-weight:700;color:#1F3864}
+.metric-lbl{font-size:.78rem;color:#666}
+</style>""", unsafe_allow_html=True)
+
+# ── Imports ────────────────────────────────────────────────────────────────────
+from core import (
+    Materiaux, Noeud, Barre, Dalle, Semelle, Projet,
+    lancer_calcul, valider_topologie,
+    calc_niveaux, calc_barres, calc_dalles,
+    lire_excel, valider_coherence,
+)
+from ui.gestion_projets import (
+    charger_projets, sauvegarder_projet, nouveau_projet,
+    charger_projet, serialiser_projet,
+)
+from ui.resultats import page_resultats
+from ui.visualisation import page_visualisation
+from ui.escalier import page_escalier
+
+# ── Session state ──────────────────────────────────────────────────────────────
+for k, v in [("projet", None), ("resultats", None), ("page", "accueil")]:
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# ── Sidebar ────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("### 🏗️ BAEL 91")
+    st.markdown("*Dimensionnement béton armé*")
+    st.divider()
+
+    pages = {
+        "🏠 Accueil":              "accueil",
+        "📂 Import":               "import",
+        "🪜 Escalier":             "escalier",
+        "🔷 Visualisation & Calcul":"visualisation",
+        "📊 Résultats":            "resultats",
+        "💾 Projets":              "projets",
     }
-    fn = handlers.get(section)
-    if fn:
-        fn(projet)
-
-
-# ── Matériaux ──────────────────────────────────────────────────────────────────
-def _saisie_materiaux(p: Projet):
-    st.markdown("## 📋 Matériaux et paramètres BAEL 91")
-    st.info("💡 G dans les dalles = charges permanentes **incluant le poids propre** de la dalle.")
-    m = p.materiaux
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown("#### Béton")
-        m.fc28   = st.number_input("fc28 (MPa)", 16.0, 50.0, float(m.fc28), 1.0)
-        m.gammab = st.number_input("γb", 1.0, 2.0, float(m.gammab), 0.05)
-        m.rhoba  = st.number_input("ρba (kN/m³)", 20.0, 30.0, float(m.rhoba), 0.5)
-        st.caption(f"fbu = {m.fbu:.2f} MPa · ftj = {m.ftj:.2f} MPa")
-    with col2:
-        st.markdown("#### Acier")
-        m.fe     = st.number_input("fe (MPa)", 235.0, 500.0, float(m.fe), 5.0)
-        m.gammas = st.number_input("γs", 1.0, 2.0, float(m.gammas), 0.05)
-        st.caption(f"fsu = {m.fsu:.2f} MPa")
-        st.markdown("#### Enrobages")
-        m.c_poutre = st.number_input("c poutres (m)", 0.01, 0.10, float(m.c_poutre), 0.005, format="%.3f")
-        m.c_dalle  = st.number_input("c dalles (m)",  0.01, 0.10, float(m.c_dalle),  0.005, format="%.3f")
-        m.c_poteau = st.number_input("c poteaux (m)", 0.01, 0.10, float(m.c_poteau), 0.005, format="%.3f")
-        m.c_fond   = st.number_input("c fondations (m)", 0.01, 0.10, float(m.c_fond), 0.005, format="%.3f")
-    with col3:
-        st.markdown("#### Fondations")
-        m.Df    = st.number_input("Profondeur Df (m)", 0.5, 5.0, float(m.Df), 0.1)
-        m.q_adm = st.number_input("q_adm (kN/m²)", 50.0, 500.0, float(m.q_adm), 10.0)
-
-    st.success("✅ Matériaux sauvegardés automatiquement")
-
-
-# ── Nœuds ──────────────────────────────────────────────────────────────────────
-def _saisie_noeuds(p: Projet):
-    st.markdown("## 📍 Nœuds")
-
-    # ── Formulaire d'ajout ─────────────────────────────────────────────────────
-    with st.expander("➕ Ajouter un nœud", expanded=not bool(p.noeuds)):
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            new_id = st.number_input("ID", 1, 9999,
-                max([n.id for n in p.noeuds], default=0) + 1,
-                key="add_n_id")
-        with c2:
-            new_x = st.number_input("X (m)", value=0.0, format="%.2f", key="add_n_x")
-        with c3:
-            new_y = st.number_input("Y (m)", value=0.0, format="%.2f", key="add_n_y")
-        with c4:
-            new_z = st.number_input("Z (m)", value=0.0, format="%.2f", key="add_n_z")
-
-        if st.button("➕ Ajouter ce nœud", type="primary", key="btn_add_n"):
-            ids_existants = {n.id for n in p.noeuds}
-            if int(new_id) in ids_existants:
-                st.error(f"L'ID {int(new_id)} existe déjà.")
-            else:
-                p.noeuds.append(Noeud(
-                    id=int(new_id), x=float(new_x),
-                    y=float(new_y), z=float(new_z)
-                ))
-                st.success(f"✅ Nœud N{int(new_id)} ajouté")
-                st.rerun()
-
-    # ── Ajout multiple ─────────────────────────────────────────────────────────
-    with st.expander("➕ Ajouter plusieurs nœuds (tableau)"):
-        st.caption("Saisissez vos nœuds puis cliquez Enregistrer. Les données sont conservées.")
-        df_new = pd.DataFrame({"ID": pd.Series(dtype=int),
-                               "X (m)": pd.Series(dtype=float),
-                               "Y (m)": pd.Series(dtype=float),
-                               "Z (m)": pd.Series(dtype=float)})
-        edited = st.data_editor(df_new, num_rows="dynamic",
-                                use_container_width=True, key="editor_noeuds_multi")
-        if st.button("💾 Enregistrer ces nœuds", key="save_n_multi"):
-            ids_existants = {n.id for n in p.noeuds}
-            nb = 0
-            for _, r in edited.iterrows():
-                if pd.notna(r.get("ID")) and int(r["ID"]) not in ids_existants:
-                    p.noeuds.append(Noeud(
-                        id=int(r["ID"]), x=float(r["X (m)"]),
-                        y=float(r["Y (m)"]), z=float(r["Z (m)"])
-                    ))
-                    ids_existants.add(int(r["ID"]))
-                    nb += 1
-            if nb:
-                st.success(f"✅ {nb} nœuds ajoutés")
-                st.rerun()
-
-    # ── Tableau existant ───────────────────────────────────────────────────────
-    if p.noeuds:
-        st.markdown(f"**{len(p.noeuds)} nœud(s) défini(s)**")
-        df = pd.DataFrame([
-            {"ID": n.id, "X (m)": n.x, "Y (m)": n.y, "Z (m)": n.z}
-            for n in sorted(p.noeuds, key=lambda n: n.id)
-        ])
-        edited2 = st.data_editor(
-            df, num_rows="dynamic", use_container_width=True,
-            key="editor_noeuds_edit",
-            column_config={
-                "ID":    st.column_config.NumberColumn(min_value=1, step=1),
-                "X (m)": st.column_config.NumberColumn(format="%.2f"),
-                "Y (m)": st.column_config.NumberColumn(format="%.2f"),
-                "Z (m)": st.column_config.NumberColumn(format="%.2f"),
-            }
-        )
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("💾 Appliquer les modifications", type="primary",
-                         key="save_noeuds_edit", use_container_width=True):
-                p.noeuds = [
-                    Noeud(id=int(r["ID"]), x=float(r["X (m)"]),
-                          y=float(r["Y (m)"]), z=float(r["Z (m)"]))
-                    for _, r in edited2.iterrows()
-                    if pd.notna(r.get("ID"))
-                ]
-                st.success(f"✅ {len(p.noeuds)} nœuds enregistrés")
-                st.rerun()
-        with col2:
-            if st.button("🗑️ Vider la liste", key="clear_noeuds",
-                         use_container_width=True):
-                p.noeuds = []
-                st.rerun()
-    else:
-        st.info("Aucun nœud défini. Utilisez le formulaire ci-dessus pour en ajouter.")
-
-    # ── Import Excel ───────────────────────────────────────────────────────────
-    with st.expander("📥 Importer depuis Excel/CSV"):
-        upl = st.file_uploader("Fichier (colonnes : ID, X, Y, Z)",
-                               type=["xlsx", "csv"], key="upl_noeuds")
-        if upl:
-            try:
-                df_imp = pd.read_csv(upl) if upl.name.endswith(".csv") \
-                         else pd.read_excel(upl)
-                cols = list(df_imp.columns)
-                st.dataframe(df_imp.head(5))
-                if st.button("✅ Importer", key="btn_imp_noeuds"):
-                    p.noeuds = [
-                        Noeud(id=int(r[cols[0]]), x=float(r[cols[1]]),
-                              y=float(r[cols[2]]), z=float(r[cols[3]]))
-                        for _, r in df_imp.iterrows()
-                    ]
-                    st.success(f"✅ {len(p.noeuds)} nœuds importés")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Erreur import : {e}")
-
-
-# ── Barres ─────────────────────────────────────────────────────────────────────
-def _saisie_barres(p: Projet):
-    st.markdown("## 📏 Barres (poutres et poteaux)")
-    st.caption("Le type (poutre/poteau) et la longueur sont calculés automatiquement "
-               "depuis les coordonnées des nœuds.")
-
-    # ── Formulaire d'ajout ─────────────────────────────────────────────────────
-    with st.expander("➕ Ajouter une barre", expanded=not bool(p.barres)):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            new_id  = st.number_input("ID", 1, 9999,
-                max([b.id for b in p.barres], default=0) + 1, key="add_b_id")
-            new_nom = st.text_input("Nom", f"B{max([b.id for b in p.barres], default=0)+1}",
-                                    key="add_b_nom")
-            new_ni  = st.number_input("Nœud i", 1, 9999, 1, key="add_b_ni",
-                                      help="ID du nœud initial")
-            new_nj  = st.number_input("Nœud j", 1, 9999, 2, key="add_b_nj",
-                                      help="ID du nœud final")
-        with c2:
-            new_b = st.number_input("Largeur b (m)", 0.10, 2.00, 0.25, 0.05,
-                                    format="%.2f", key="add_b_b")
-            new_h = st.number_input("Hauteur h (m)", 0.10, 3.00, 0.40, 0.05,
-                                    format="%.2f", key="add_b_h")
-        with c3:
-            new_Gadd = st.number_input("G_add (kN/m)", 0.0, 50.0, 0.0, 0.5,
-                                       key="add_b_G",
-                                       help="Charges permanentes additionnelles sur la barre")
-            new_Qadd = st.number_input("Q_add (kN/m)", 0.0, 50.0, 0.0, 0.5,
-                                       key="add_b_Q",
-                                       help="Charges variables additionnelles sur la barre")
-
-        if st.button("➕ Ajouter cette barre", type="primary", key="btn_add_b"):
-            ids_existants = {b.id for b in p.barres}
-            if int(new_id) in ids_existants:
-                st.error(f"L'ID {int(new_id)} existe déjà.")
-            elif int(new_ni) == int(new_nj):
-                st.error("Ni et Nj doivent être différents.")
-            else:
-                p.barres.append(Barre(
-                    id=int(new_id), nom=str(new_nom),
-                    ni=int(new_ni), nj=int(new_nj),
-                    b=float(new_b), h=float(new_h),
-                    G_add=float(new_Gadd), Q_add=float(new_Qadd)
-                ))
-                st.success(f"✅ Barre {new_nom} ajoutée")
-                st.rerun()
-
-    # ── Ajout multiple ─────────────────────────────────────────────────────────
-    with st.expander("➕ Ajouter plusieurs barres (tableau)"):
-        df_new = pd.DataFrame({
-            "ID": pd.Series(dtype=int), "Nom": pd.Series(dtype=str),
-            "Ni": pd.Series(dtype=int), "Nj": pd.Series(dtype=int),
-            "b (m)": pd.Series(dtype=float), "h (m)": pd.Series(dtype=float),
-            "G_add": pd.Series(dtype=float), "Q_add": pd.Series(dtype=float),
-        })
-        edited = st.data_editor(df_new, num_rows="dynamic",
-                                use_container_width=True, key="editor_barres_multi")
-        if st.button("💾 Enregistrer", key="save_b_multi"):
-            ids_existants = {b.id for b in p.barres}
-            nb = 0
-            for _, r in edited.iterrows():
-                if pd.notna(r.get("ID")) and int(r["ID"]) not in ids_existants:
-                    p.barres.append(Barre(
-                        id=int(r["ID"]),
-                        nom=str(r.get("Nom", f"B{int(r['ID'])}")),
-                        ni=int(r["Ni"]), nj=int(r["Nj"]),
-                        b=float(r["b (m)"]), h=float(r["h (m)"]),
-                        G_add=float(r.get("G_add", 0)),
-                        Q_add=float(r.get("Q_add", 0))
-                    ))
-                    ids_existants.add(int(r["ID"]))
-                    nb += 1
-            if nb:
-                st.success(f"✅ {nb} barres ajoutées")
-                st.rerun()
-
-    # ── Tableau existant ───────────────────────────────────────────────────────
-    if p.barres:
-        # Calculer les types depuis la topologie
-        from core.topologie import calc_niveaux, calc_barres
-        try:
-            calc_niveaux(p); calc_barres(p)
-        except Exception:
-            pass
-
-        st.markdown(f"**{len(p.barres)} barre(s) définie(s)**")
-        df = pd.DataFrame([{
-            "ID": b.id, "Nom": b.nom,
-            "Ni": b.ni, "Nj": b.nj,
-            "Type": b.type_elem if b.type_elem else "?",
-            "L (m)": round(b.longueur, 2) if b.longueur else "?",
-            "b (m)": b.b, "h (m)": b.h,
-            "G_add": b.G_add, "Q_add": b.Q_add,
-        } for b in sorted(p.barres, key=lambda b: b.id)])
-
-        edited2 = st.data_editor(
-            df, num_rows="dynamic", use_container_width=True,
-            key="editor_barres_edit",
-            disabled=["Type", "L (m)"],
-            column_config={
-                "ID":    st.column_config.NumberColumn(min_value=1, step=1),
-                "Ni":    st.column_config.NumberColumn(min_value=1, step=1),
-                "Nj":    st.column_config.NumberColumn(min_value=1, step=1),
-                "b (m)": st.column_config.NumberColumn(min_value=0.05, max_value=3.0, format="%.2f"),
-                "h (m)": st.column_config.NumberColumn(min_value=0.05, max_value=3.0, format="%.2f"),
-                "G_add": st.column_config.NumberColumn(min_value=0.0, format="%.2f"),
-                "Q_add": st.column_config.NumberColumn(min_value=0.0, format="%.2f"),
-            }
-        )
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("💾 Appliquer les modifications", type="primary",
-                         key="save_barres_edit", use_container_width=True):
-                p.barres = [
-                    Barre(id=int(r["ID"]), nom=str(r["Nom"]),
-                          ni=int(r["Ni"]), nj=int(r["Nj"]),
-                          b=float(r["b (m)"]), h=float(r["h (m)"]),
-                          G_add=float(r["G_add"]), Q_add=float(r["Q_add"]))
-                    for _, r in edited2.iterrows()
-                    if pd.notna(r.get("ID"))
-                ]
-                st.success(f"✅ {len(p.barres)} barres enregistrées")
-                st.rerun()
-        with col2:
-            if st.button("🗑️ Vider la liste", key="clear_barres",
-                         use_container_width=True):
-                p.barres = []
-                st.rerun()
-    else:
-        st.info("Aucune barre définie. Utilisez le formulaire ci-dessus.")
-
-
-# ── Dalles ─────────────────────────────────────────────────────────────────────
-def _saisie_dalles(p: Projet):
-    st.markdown("## ▪ Dalles")
-    st.warning("**G = charges permanentes incluant le poids propre** "
-               "(ex : hourdis 16+4 : G = superposé + 25×0.20 = G + 5.0 kN/m²)")
-
-    # ── Formulaire d'ajout ─────────────────────────────────────────────────────
-    with st.expander("➕ Ajouter une dalle", expanded=not bool(p.dalles)):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            new_id   = st.number_input("ID dalle", 1, 9999,
-                max([d.id for d in p.dalles], default=0) + 1, key="add_d_id")
-            new_nds  = st.text_input("Nœuds (séparés par virgule)",
-                                     "1,2,5,4", key="add_d_nds",
-                                     help="Min 3, max 8 nœuds, sens anti-horaire")
-        with c2:
-            new_G    = st.number_input("G (kN/m²)", 0.0, 50.0, 8.5, 0.5, key="add_d_G",
-                                       help="Inclure le poids propre de la dalle")
-            new_Q    = st.number_input("Q (kN/m²)", 0.0, 20.0, 2.5, 0.5, key="add_d_Q")
-        with c3:
-            new_typ  = st.selectbox("Type", ["Hourdis", "Dalle pleine"], key="add_d_type")
-            new_sens = st.selectbox("Sens portée",
-                                    ["Sens X", "Sens Y", "XY"],
-                                    key="add_d_sens",
-                                    help="Hourdis : imposer Sens X ou Y. Dalle pleine : XY si carrée")
-            new_e    = 0.0
-            if new_typ == "Dalle pleine":
-                new_e = st.number_input("Épaisseur e (m)", 0.08, 0.50, 0.20, 0.01,
-                                        format="%.2f", key="add_d_e")
-
-        if st.button("➕ Ajouter cette dalle", type="primary", key="btn_add_d"):
-            try:
-                nds = [int(x.strip()) for x in new_nds.split(",")]
-                if len(nds) < 3:
-                    st.error("Minimum 3 nœuds.")
-                else:
-                    p.dalles.append(Dalle(
-                        id=int(new_id), noeuds=nds,
-                        G=float(new_G), Q=float(new_Q),
-                        sens_lx=new_sens,
-                        type_dalle="Hourdis" if new_typ == "Hourdis" else "Pleine",
-                        e_dalle=float(new_e)
-                    ))
-                    st.success(f"✅ Dalle D{int(new_id)} ajoutée")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Erreur : {e}")
-
-    # ── Tableau existant ───────────────────────────────────────────────────────
-    if p.dalles:
-        st.markdown(f"**{len(p.dalles)} dalle(s) définie(s)**")
-        df = pd.DataFrame([{
-            "ID": d.id,
-            "Nœuds": ",".join(map(str, d.noeuds)),
-            "Sens":  d.sens_lx,
-            "G (kN/m²)": d.G,
-            "Q (kN/m²)": d.Q,
-            "Type": d.type_dalle,
-            "e (m)": d.e_dalle if d.type_dalle == "Pleine" else "",
-        } for d in sorted(p.dalles, key=lambda d: d.id)])
-        st.dataframe(df, use_container_width=True, hide_index=True)
-
-        if st.button("🗑️ Supprimer toutes les dalles", key="clear_dalles"):
-            p.dalles = []
+    for label, key in pages.items():
+        btn_type = "primary" if st.session_state.page == key else "secondary"
+        if st.button(label, use_container_width=True,
+                     type=btn_type, key=f"nav_{key}"):
+            st.session_state.page = key
             st.rerun()
-    else:
-        st.info("Aucune dalle définie. Utilisez le formulaire ci-dessus.")
 
+    st.divider()
 
-# ── Fondations ─────────────────────────────────────────────────────────────────
-def _saisie_fondations(p: Projet):
-    st.markdown("## 🏛️ Fondations — Semelles isolées")
-    st.info("ex=0 et ey=0 pour une semelle centrée (cas le plus courant).")
-
-    # Générer automatiquement
-    if st.button("🔄 Générer les semelles depuis les poteaux niv. 1",
-                 type="primary", key="gen_semelles"):
-        from core.topologie import calc_niveaux, calc_barres
-        calc_niveaux(p); calc_barres(p)
-        pots = [b for b in p.barres if b.type_elem == "poteau" and b.niveau == 1]
-        ids_existants = {s.id_poteau for s in p.semelles}
-        nb = 0
-        for b in pots:
-            if b.id not in ids_existants:
-                p.semelles.append(Semelle(id_poteau=b.id))
-                nb += 1
-        st.success(f"✅ {nb} semelles générées — {len(p.semelles)} au total")
-        st.rerun()
-
-    if p.semelles:
-        st.markdown(f"**{len(p.semelles)} semelle(s)**")
-        tout_centre = all(s.ex == 0 and s.ey == 0 for s in p.semelles)
-
-        df = pd.DataFrame([{
-            "ID poteau": s.id_poteau,
-            "ex (m)": s.ex,
-            "ey (m)": s.ey,
-            "q_adm_loc (kN/m²)": s.q_adm_loc,
-        } for s in sorted(p.semelles, key=lambda s: s.id_poteau)])
-
-        if tout_centre:
-            st.caption("Toutes les semelles sont centrées (ex=ey=0).")
-
-        edited = st.data_editor(
-            df, num_rows="fixed", use_container_width=True,
-            key="editor_fonds",
-            column_config={
-                "ex (m)": st.column_config.NumberColumn(format="%.3f"),
-                "ey (m)": st.column_config.NumberColumn(format="%.3f"),
-                "q_adm_loc (kN/m²)": st.column_config.NumberColumn(
-                    min_value=0.0, help="0 = utiliser la valeur globale des matériaux"),
-            }
+    # Projet actif
+    if st.session_state.projet:
+        p = st.session_state.projet
+        st.markdown(f"**Actif :** `{p.nom}`")
+        st.caption(
+            f"{len(p.noeuds)} nœuds · "
+            f"{len(p.barres)} barres · "
+            f"{len(p.dalles)} dalles"
         )
-        if st.button("💾 Appliquer", type="primary", key="save_fonds",
-                     use_container_width=True):
-            for _, r in edited.iterrows():
-                sid = int(r["ID poteau"])
-                s = next((s for s in p.semelles if s.id_poteau == sid), None)
-                if s:
-                    s.ex = float(r["ex (m)"])
-                    s.ey = float(r["ey (m)"])
-                    s.q_adm_loc = float(r["q_adm_loc (kN/m²)"])
-            st.success("✅ Fondations mises à jour")
+        if st.session_state.resultats:
+            st.markdown("✅ *Calcul effectué*")
+        if st.button("💾 Sauvegarder", use_container_width=True):
+            sauvegarder_projet(p)
+            st.toast("Projet sauvegardé ✅")
     else:
-        st.info("Cliquez le bouton ci-dessus pour générer les semelles automatiquement "
-                "depuis les poteaux de niveau 1.")
+        st.caption("Aucun projet actif")
+
+
+# ── PAGES ──────────────────────────────────────────────────────────────────────
+page = st.session_state.page
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ACCUEIL
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "accueil":
+    st.markdown(
+        '<div class="main-title">🏗️ BAEL 91 — Dimensionnement béton armé</div>',
+        unsafe_allow_html=True)
+    st.markdown(
+        '<div class="sub-title">Outil de calcul pour structures en béton armé '
+        '— BAEL 91 révisé 99</div>',
+        unsafe_allow_html=True)
+
+    c1,c2,c3,c4 = st.columns(4)
+    for col,(val,lbl) in zip([c1,c2,c3,c4],[
+        ("500+","Nœuds max"),("500+","Barres max"),
+        ("200+","Dalles max"),("✓","BAEL 91 révisé 99")
+    ]):
+        col.markdown(
+            f'<div class="metric-card">'
+            f'<div class="metric-val">{val}</div>'
+            f'<div class="metric-lbl">{lbl}</div></div>',
+            unsafe_allow_html=True)
+
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### 🔄 Workflow recommandé")
+        st.markdown("""
+1. **📥 Télécharger** le fichier Excel de saisie modèle
+2. **✏️ Remplir** vos données dans Excel (nœuds, barres, dalles...)
+3. **📤 Importer** le fichier dans l'application
+4. **⚡ Calculer** automatiquement
+5. **📊 Consulter** les résultats et exporter PDF/Excel
+        """)
+    with col2:
+        st.markdown("### 📋 Fonctionnalités")
+        st.markdown("""
+- Dalles hourdis et pleines (coefficients BAEL Annexe E3)
+- Poutres continues (méthode de Clapeyron)
+- Poteaux avec flambement BAEL 99
+- Descente de charges complète
+- Semelles centrées et excentriques + longrines
+- Export PDF (Unicode) et Excel
+- Visualisation 3D interactive
+- Sauvegarde projets JSON
+        """)
+
+    st.info(
+        "💡 **Important** : G dans les dalles = charges permanentes "
+        "**incluant le poids propre** (ρba × épaisseur). "
+        "Exemple hourdis 16+4 : G = charges superposées + 25×0.20 = G + 5.0 kN/m²"
+    )
+
+    st.divider()
+    st.markdown("### 📥 Télécharger le fichier Excel de saisie")
+    col1, col2 = st.columns([2,1])
+    with col1:
+        st.markdown(
+            "Le fichier contient 6 feuilles pré-remplies avec un projet R+3 "
+            "de démonstration : **Matériaux, Nœuds, Barres, Dalles, "
+            "Fondations, Guide**."
+        )
+    with col2:
+        try:
+            # Chemin relatif au dossier de l'app (Cloud-ready)
+            _excel_path = os.path.join(
+                os.path.dirname(os.path.abspath(__file__)),
+                "BAEL91_Saisie_v13.xlsx"
+            )
+            with open(_excel_path, "rb") as f:
+                st.download_button(
+                    "⬇ Télécharger BAEL91_Saisie_v13.xlsx",
+                    data=f.read(),
+                    file_name="BAEL91_Saisie_v13.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument"
+                         ".spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary",
+                )
+        except FileNotFoundError:
+            st.warning("Fichier modèle non trouvé.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# IMPORT & CALCUL
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "import":
+    st.markdown(
+        '<div class="section-header">📂 Import du fichier Excel</div>',
+        unsafe_allow_html=True)
+
+    st.markdown("""
+    **Workflow :**
+    1. Remplissez le fichier Excel de saisie (téléchargeable depuis l'Accueil)
+    2. Glissez-déposez le fichier ci-dessous
+    3. Vérifiez les données importées
+    4. Allez dans l'onglet **🪜 Escalier** pour configurer les charges d'escalier
+    5. Lancez le calcul depuis l'onglet **🔷 Visualisation & Calcul**
+    """)
+
+    # ── Upload ─────────────────────────────────────────────────────────────────
+    st.markdown("#### Étape 1 — Importer le fichier Excel")
+    uploaded = st.file_uploader(
+        "Glissez votre fichier BAEL91_Saisie.xlsx ici",
+        type=["xlsx"],
+        key="uploader_excel",
+        help="Fichier Excel avec les feuilles : Materiaux, Noeuds, Barres, "
+             "Dalles, Fondations"
+    )
+
+    if uploaded:
+        with st.spinner("Lecture du fichier Excel..."):
+            projet, erreurs = lire_excel(uploaded)
+            avertissements  = valider_coherence(projet)
+
+        # ── Résumé import ──────────────────────────────────────────────────────
+        st.markdown("#### Étape 2 — Données importées")
+        c1,c2,c3,c4,c5 = st.columns(5)
+        c1.metric("Nœuds",    len(projet.noeuds))
+        c2.metric("Barres",   len(projet.barres))
+        c3.metric("Dalles",   len(projet.dalles))
+        c4.metric("Semelles", len(projet.semelles))
+        c5.metric("Erreurs",  len(erreurs),
+                  delta=f"{len(erreurs)} problème(s)" if erreurs else "Aucune",
+                  delta_color="inverse")
+
+        # Erreurs bloquantes
+        err_bloquantes = [e for e in erreurs
+                         if not e.startswith("Avertissement")
+                         and "semble faible" not in e
+                         and "ne sera pas calculée" not in e
+                         and "inexistant" not in e]
+
+        if erreurs:
+            with st.expander(
+                f"⚠ {len(erreurs)} message(s) lors de l'import",
+                expanded=True
+            ):
+                for e in erreurs:
+                    st.warning(e)
+
+        if avertissements:
+            with st.expander(f"ℹ {len(avertissements)} avertissement(s)"):
+                for a in avertissements:
+                    st.info(a)
+
+        # Aperçu des données
+        with st.expander("👁 Aperçu des données"):
+            tab1,tab2,tab3,tab4 = st.tabs(
+                ["Matériaux","Nœuds","Barres","Dalles"])
+            with tab1:
+                m = projet.materiaux
+                import pandas as pd
+                df_m = pd.DataFrame([
+                    ("fc28", f"{m.fc28:.0f} MPa"),
+                    ("fe",   f"{m.fe:.0f} MPa"),
+                    ("q_adm",f"{m.q_adm:.0f} kN/m²"),
+                    ("Classe exposition", m.classe_exposition),
+                    ("Enrobage poutres",  f"{m.c_poutre*100:.0f} cm"),
+                    ("Enrobage dalles",   f"{m.c_dalle*100:.0f} cm"),
+                ], columns=["Paramètre","Valeur"])
+                st.dataframe(df_m, hide_index=True, use_container_width=True)
+            with tab2:
+                import pandas as pd
+                df_n = pd.DataFrame([
+                    {"ID":n.id,"X":n.x,"Y":n.y,"Z":n.z}
+                    for n in projet.noeuds[:20]
+                ])
+                st.dataframe(df_n, hide_index=True)
+                if len(projet.noeuds) > 20:
+                    st.caption(
+                        f"... et {len(projet.noeuds)-20} autres nœuds")
+            with tab3:
+                import pandas as pd
+                from core.topologie import calc_niveaux, calc_barres
+                calc_niveaux(projet); calc_barres(projet)
+                df_b = pd.DataFrame([{
+                    "ID":b.id,"Nom":b.nom,
+                    "Ni":b.ni,"Nj":b.nj,
+                    "Type":b.type_elem,
+                    "b(m)":b.b,"h(m)":b.h,
+                    "L(m)":round(b.longueur,2),
+                } for b in projet.barres[:20]])
+                st.dataframe(df_b, hide_index=True)
+                if len(projet.barres) > 20:
+                    st.caption(f"... et {len(projet.barres)-20} autres barres")
+            with tab4:
+                import pandas as pd
+                df_d = pd.DataFrame([{
+                    "ID":d.id,
+                    "Nœuds":str(d.noeuds[:4])+"..." if len(d.noeuds)>4
+                            else str(d.noeuds),
+                    "Type":d.type_dalle,
+                    "Sens":d.sens_lx,
+                    "G":d.G,"Q":d.Q,
+                } for d in projet.dalles])
+                st.dataframe(df_d, hide_index=True)
+
+        # Nom du projet
+        st.markdown("#### Étape 3 — Nommer le projet")
+        nom = st.text_input("Nom du projet", value=projet.nom,
+                            key="nom_projet_import")
+        projet.nom = nom
+
+        # ── Info → continuer vers Escalier puis Visualisation ────────────────
+        st.divider()
+        st.info("✅ Projet importé. Allez dans **🪜 Escalier** pour configurer "
+                "les charges d'escalier, puis dans **🔷 Visualisation & Calcul** "
+                "pour lancer le calcul.")
+        if st.button("→ Continuer vers l'onglet Escalier",
+                     use_container_width=True):
+            st.session_state.projet = projet
+            st.session_state.page = "escalier"
+            st.rerun()
+
+    else:
+        # Pas encore de fichier uploadé
+        st.info(
+            "👆 Glissez votre fichier Excel de saisie ci-dessus. "
+            "Si vous n'avez pas encore le fichier modèle, "
+            "téléchargez-le depuis la page **Accueil**."
+        )
+
+        # Charger un projet sauvegardé
+        st.divider()
+        st.markdown("#### Ou ouvrir un projet sauvegardé")
+        projets_lst = charger_projets()
+        if projets_lst:
+            noms = [p["nom"] for p in projets_lst]
+            choix = st.selectbox("Projet", noms, key="sel_proj_import")
+            if st.button("📂 Ouvrir ce projet", use_container_width=True):
+                pf = next(p["fichier"] for p in projets_lst
+                          if p["nom"] == choix)
+                st.session_state.projet   = charger_projet(pf)
+                st.session_state.resultats = None
+                st.toast(f"Projet '{choix}' chargé ✅")
+                st.rerun()
+        else:
+            st.caption("Aucun projet sauvegardé.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# RÉSULTATS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "resultats":
+    page_resultats(st.session_state.resultats, st.session_state.projet)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VISUALISATION & CALCUL
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "visualisation":
+    st.markdown(
+        '<div class="section-header">🔷 Visualisation & Calcul</div>',
+        unsafe_allow_html=True)
+
+    # ── Bouton Calcul ─────────────────────────────────────────────────────────
+    projet = st.session_state.projet
+    if projet and len(projet.noeuds) > 0:
+        # Afficher les escaliers configurés
+        escaliers = st.session_state.get("escaliers", [])
+        if escaliers:
+            with st.expander(
+                f"🪜 {len(escaliers)} escalier(s) configuré(s) — "
+                "charges injectées sur les poutres", expanded=False):
+                for esc in escaliers:
+                    inj = esc.get("gadd", {})
+                    noms_p = []
+                    for bid, gadd in inj.items():
+                        b = next((b for b in projet.barres
+                                  if b.id == bid), None)
+                        if b:
+                            noms_p.append(f"{b.nom} +{gadd:.2f}kN/m")
+                    st.markdown(
+                        f"**{esc['nom']}** : {', '.join(noms_p) or 'aucune poutre'}")
+
+        # Vérification topologie
+        from core.topologie import calc_niveaux, calc_barres, calc_dalles
+        from core import valider_topologie
+        calc_niveaux(projet); calc_barres(projet); calc_dalles(projet)
+        topo_errors = valider_topologie(projet)
+        if topo_errors:
+            st.error("**Erreurs de topologie :**")
+            for e in topo_errors:
+                st.markdown(f"- {e}")
+
+        col_btn, col_info = st.columns([2, 3])
+        with col_btn:
+            if st.button("🚀 Lancer le calcul BAEL 91",
+                         type="primary", use_container_width=True,
+                         disabled=bool(topo_errors)):
+                # Appliquer les G_add des escaliers en mémoire
+                for esc in st.session_state.get("escaliers", []):
+                    for bid, gadd in esc.get("gadd", {}).items():
+                        b = next((b for b in projet.barres
+                                  if b.id == bid), None)
+                        if b:
+                            b.G_add += gadd
+                with st.spinner("Calcul BAEL 91 en cours..."):
+                    try:
+                        res = lancer_calcul(projet)
+                        st.session_state.projet    = projet
+                        st.session_state.resultats = res
+                        nb_alertes = (
+                            sum(1 for r in res.poutres if r.alerte) +
+                            sum(1 for r in res.poteaux if r.alerte_am)
+                        )
+                        st.success(
+                            f"✅ Calcul terminé — "
+                            f"{len(res.poutres)} poutres · "
+                            f"{len(res.poteaux)} poteaux · "
+                            f"{len(res.dalles)} dalles"
+                            + (f" · ⚠ {nb_alertes} alerte(s)"
+                               if nb_alertes else ""))
+                        sauvegarder_projet(projet)
+                        st.session_state.page = "resultats"
+                        st.rerun()
+                    except Exception as e:
+                        import traceback
+                        st.error(f"Erreur pendant le calcul : {e}")
+                        st.code(traceback.format_exc())
+        with col_info:
+            if st.session_state.resultats:
+                st.success("✅ Calcul déjà effectué — relancer pour "
+                           "prendre en compte les modifications")
+            else:
+                st.info("Projet chargé et prêt pour le calcul")
+
+        st.divider()
+    elif not projet:
+        st.warning("Importez d'abord un projet depuis l'onglet **📂 Import**.")
+
+    page_visualisation(
+        st.session_state.projet,
+        st.session_state.resultats
+    )
+
+elif page == "escalier":
+    page_escalier(st.session_state.projet)
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GESTION PROJETS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "projets":
+    st.markdown(
+        '<div class="section-header">💾 Gestion des projets</div>',
+        unsafe_allow_html=True)
+
+    projets_lst = charger_projets()
+
+    if not projets_lst:
+        st.info("Aucun projet sauvegardé.")
+    else:
+        import pandas as pd
+        df_p = pd.DataFrame([{
+            "Nom": p["nom"],
+            "Fichier": Path(p["fichier"]).name,
+        } for p in projets_lst])
+        st.dataframe(df_p, use_container_width=True, hide_index=True)
+
+        st.divider()
+        col1, col2 = st.columns(2)
+        with col1:
+            choix = st.selectbox(
+                "Sélectionner un projet",
+                [p["nom"] for p in projets_lst],
+                key="sel_proj_gestion"
+            )
+            if st.button("📂 Charger", use_container_width=True):
+                pf = next(p["fichier"] for p in projets_lst
+                          if p["nom"] == choix)
+                st.session_state.projet    = charger_projet(pf)
+                st.session_state.resultats = None
+                st.toast(f"'{choix}' chargé ✅")
+                st.rerun()
+
+        with col2:
+            if st.session_state.projet:
+                if st.button("💾 Sauvegarder le projet actif",
+                             use_container_width=True):
+                    sauvegarder_projet(st.session_state.projet)
+                    st.toast("Sauvegardé ✅")
+                    st.rerun()

@@ -4,6 +4,8 @@ Affichage des résultats de calcul BAEL 91
 """
 import streamlit as st
 import pandas as pd
+import math as _math
+import re as _re_mod
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -260,21 +262,35 @@ def _badge(texte: str) -> str:
     return texte
 
 
-
-import math as _math
-
 def _statut_poteau(r, projet):
     """Statut unifié pour un poteau — messages explicites avec valeurs."""
     b = next((b for b in projet.barres if b.id == r.barre_id), None)
     alertes = []
-    if b:
-        As_max = 0.05 * b.b * 1000 * b.h * 1000 / 100
-        if r.As > As_max:
-            alertes.append(
-                f"❌ As={r.As:.2f} > As_max={As_max:.2f}cm² "
-                f"(section trop petite)")
+
+    # Lire directement r.vS qui contient le message exact du moteur
+    if r.alerte_am and r.vS:
+        if "As=" in r.vS and "As_max" in r.vS:
+            # As > As_max
+            if b:
+                As_max = 0.05 * b.b * 1000 * b.h * 1000 / 100
+                alertes.append(
+                    f"❌ As={r.As:.2f} > As_max={As_max:.2f}cm² "
+                    f"— augmenter b ou h")
+        elif "sig=" in r.vS:
+            # Contrainte béton dépassée
+            m = _re_mod.search(r"sig=([\d.]+)>([\d.]+)MPa", r.vS)
+            if m:
+                alertes.append(
+                    f"❌ σ_béton={m.group(1)} > fbu={m.group(2)}MPa "
+                    f"— section insuffisante")
+            else:
+                alertes.append(f"❌ {r.vS}")
+        else:
+            alertes.append(f"❌ {r.vS}")
+
     if r.lam > 70:
         alertes.append(f"❌ λ={r.lam:.0f} > 70 (hors méthode forfaitaire)")
+
     return " | ".join(alertes) if alertes else "✅ OK"
 
 
@@ -290,8 +306,7 @@ def _statut_poutre(r):
         alertes.append(f"❌ Cisaillement excessif ({r.vCis})")
     # Flèche — extraire les valeurs du message vFleche
     if r.vFleche and "REVOIR" in r.vFleche.upper():
-        import re as _re
-        m = _re.search(r"f≈([\d.]+)>([\d.]+)mm", r.vFleche)
+        m = _re_mod.search(r"f≈([\d.]+)>([\d.]+)mm", r.vFleche)
         if m:
             alertes.append(
                 f"⚠ Flèche f≈{m.group(1)}mm > {m.group(2)}mm (indicatif)")
