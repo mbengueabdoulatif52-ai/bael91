@@ -429,12 +429,13 @@ def page_escalier(projet=None):
         st.markdown(f"### {titre}")
 
         esc_init = escaliers[idx] if is_edit and idx is not None else None
-        # Utiliser un compteur unique pour éviter les conflits de clés Streamlit
-    if "esc_counter" not in st.session_state:
-        st.session_state.esc_counter = 0
-    if not is_edit:
-        st.session_state.esc_counter += 1
-    key_pfx = f"edit_{idx}" if is_edit else f"new_{st.session_state.esc_counter}"
+        # Compteur unique pour éviter les conflits de clés Streamlit
+        if "esc_counter" not in st.session_state:
+            st.session_state.esc_counter = 0
+        if not is_edit:
+            st.session_state.esc_counter += 1
+        key_pfx = (f"edit_{idx}" if is_edit
+                   else f"new_{st.session_state.esc_counter}")
 
         new_esc = _formulaire_escalier(projet, esc_init, key_pfx)
 
