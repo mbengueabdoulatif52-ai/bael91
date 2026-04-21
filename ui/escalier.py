@@ -273,23 +273,29 @@ def _formulaire_escalier(projet, kp):
 
     poutres_sel = {}
     for role in roles:
-        # Clé de la sélection dans session_state
+        # sel_key : clé du widget — gérée exclusivement par Streamlit
+        # id_key  : clé séparée pour l'ID — modifiable librement
         sel_key = f"{kp}_sel_{role}"
-        # Options disponibles
+        id_key  = f"{kp}_id_{role}"
+
         opts_list = list(opts.keys())
-        # Index courant (depuis session_state si déjà sélectionné)
-        cur_bid   = st.session_state.get(sel_key)
+
+        # Retrouver l'index depuis l'ID stocké dans id_key (clé séparée)
+        cur_bid   = st.session_state.get(id_key)
         cur_label = next((l for l,v in opts.items() if v==cur_bid),
                          "— Aucune —")
         cur_idx   = opts_list.index(cur_label) if cur_label in opts_list else 0
-        # Afficher le selectbox avec l'index persisté
+
+        # Widget selectbox — NE PAS écrire dans session_state[sel_key]
+        # Streamlit le gère automatiquement
         st.selectbox(labels_role[role], opts_list,
                      index=cur_idx, key=sel_key)
-        # Lire la valeur après sélection et stocker l'ID
+
+        # Lire le label et stocker l'ID dans la clé séparée
         sel_label = st.session_state.get(sel_key, "— Aucune —")
-        poutres_sel[role] = opts.get(sel_label)
-        # Mettre à jour session_state avec l'ID (pas le label)
-        st.session_state[sel_key] = sel_label
+        bid_sel   = opts.get(sel_label)
+        st.session_state[id_key] = bid_sel  # écriture autorisée (clé séparée)
+        poutres_sel[role] = bid_sel
 
     # ── Assembler le dict escalier ────────────────────────────────────────────
     return {
