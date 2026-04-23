@@ -152,6 +152,16 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
         b_pot = pot.b if pot.b > 0 else 0.25
         h_pot = pot.h if pot.h > 0 else 0.25
 
+        # Alerte 10 — valeur ex/ey invalide (doit être -1, 0 ou +1)
+        if sem.ex not in (-1.0, 0.0, 1.0):
+            if not hasattr(sem, 'alertes'): sem.alertes = []
+            sem.alertes.append(
+                f"❌ ex={sem.ex} invalide — saisir uniquement -1, 0 ou +1")
+        if sem.ey not in (-1.0, 0.0, 1.0):
+            if not hasattr(sem, 'alertes'): sem.alertes = []
+            sem.alertes.append(
+                f"❌ ey={sem.ey} invalide — saisir uniquement -1, 0 ou +1")
+
         if abs(sem.ex) == 0 and abs(sem.ey) == 0:
             dim_semelle_centree(sem, b_pot, h_pot, projet.materiaux)
             sem.ex_reel = 0.0
@@ -225,8 +235,11 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
                     f"— réduire ex/ey ou augmenter B")
             elif abs(sem.q_min) < 0.001 and (abs(sem.ex)>0 or abs(sem.ey)>0):
                 # Alerte 2 — limite soulèvement
-                alertes.append(
-                    f"⚠ Semelle en limite de soulèvement (q_min≈0)")
+                # Supprimer si convention -1/0/+1 car c'est le comportement attendu
+                # (poteau intentionnellement en bord de semelle)
+                if sem.ex not in (-1.0, 0.0, 1.0) or sem.ey not in (-1.0, 0.0, 1.0):
+                    alertes.append(
+                        f"⚠ Semelle en limite de soulèvement (q_min≈0)")
 
         # Alerte 3 — pression sol dépassée
         if sem.q_max > q_adm * 1.01:
