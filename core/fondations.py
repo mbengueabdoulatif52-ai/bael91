@@ -237,11 +237,10 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
                 longrines_ok = long_X_ok and long_Y_ok
 
                 if longrines_ok:
-                    # Soulèvement compensé par les longrines — avertissement seulement
-                    alertes.append(
-                        f"⚠ Soulèvement compensé par longrines "
-                        f"(q_min={sem.q_min:.1f}kN/m²) "
-                        f"— vérifier dimensionnement longrines")
+                    # Soulèvement compensé par longrines
+                    # Pas d'alerte ici — les alertes longrines
+                    # apparaissent dans le tableau Longrines si nécessaire
+                    pass
                 else:
                     # Soulèvement réel sans longrine — erreur bloquante
                     manquantes = []
