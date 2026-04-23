@@ -81,7 +81,7 @@ def _statut_dal_xls(r):
 
 
 def _statut_sem_xls(s, q_adm):
-    """Statut semelle pour export Excel — lit sem.alertes du moteur."""
+    """Statut semelle Excel — exclut les alertes longrines (dans feuille Longrines)."""
     alertes = getattr(s, 'alertes', None)
     if alertes is None:
         alertes = []
@@ -91,7 +91,9 @@ def _statut_sem_xls(s, q_adm):
             alertes.append(f"q_max={s.q_max:.0f}>q_adm={q_adm:.0f}kN/m2")
         if s.alerte and not alertes:
             alertes.append(str(s.alerte))
-    return " | ".join(alertes) if alertes else "OK"
+    # Exclure alertes longrines — affichées dans feuille Longrines
+    alertes_sem = [a for a in alertes if 'Longrine' not in a]
+    return " | ".join(alertes_sem) if alertes_sem else "OK"
 
 
 def exporter_excel(res, projet) -> bytes:
@@ -234,6 +236,57 @@ def exporter_excel(res, projet) -> bytes:
                 _statut_sem_xls(s, projet.materiaux.q_adm)]
         for c, v in enumerate(vals, 1):
             style_dat(ws3.cell(i, c), v, bg)
+
+    # ── Feuille Longrines ────────────────────────────────────────────────────
+    rows_long = []
+    for s in res.semelles:
+        if s.long_X_As > 0:
+            # Statut longrine X
+            alertes_lX = [a for a in getattr(s,'alertes',[])
+                          if 'Longrine X' in a]
+            statut_lX = " | ".join(alertes_lX) if alertes_lX else "OK"
+            rows_long.append([
+                _np(s.id_poteau), "X", _np(s.long_X_vers),
+                f"{s.b_long_X*100:.0f}x{s.h_long_X*100:.0f}cm",
+                round(getattr(s,'ex_reel',s.ex), 3),
+                round(s.long_X_Mu, 1),
+                round(s.long_X_As, 2),
+                round(s.long_X_As * 0.5, 2),
+                s.long_X_vM,
+                statut_lX,
+            ])
+        if s.long_Y_As > 0:
+            alertes_lY = [a for a in getattr(s,'alertes',[])
+                          if 'Longrine Y' in a]
+            statut_lY = " | ".join(alertes_lY) if alertes_lY else "OK"
+            rows_long.append([
+                _np(s.id_poteau), "Y", _np(s.long_Y_vers),
+                f"{s.b_long_Y*100:.0f}x{s.h_long_Y*100:.0f}cm",
+                round(getattr(s,'ey_reel',s.ey), 3),
+                round(s.long_Y_Mu, 1),
+                round(s.long_Y_As, 2),
+                round(s.long_Y_As * 0.5, 2),
+                s.long_Y_vM,
+                statut_lY,
+            ])
+
+    if rows_long:
+        ws_l = wb.create_sheet("Longrines")
+        hdrs_l = ["Poteau", "Dir.", "Vers poteau", "Section",
+                  "e (m)", "Moment (kN.m)", "As long. (cm²)",
+                  "As chap. (cm²)", "Vérif", "Statut"]
+        cols_l = [12, 6, 12, 12, 8, 14, 14, 14, 20, 35]
+        for c, (h, w) in enumerate(zip(hdrs_l, cols_l), 1):
+            style_hdr(ws_l.cell(1, c), h, "7B3F00")
+            ws_l.column_dimensions[get_column_letter(c)].width = w
+        ws_l.row_dimensions[1].height = 28
+
+        for i, row in enumerate(rows_long, 2):
+            has_alert = any("❌" in str(v) or "⚠" in str(v) for v in row)
+            bg = "FCE4D6" if has_alert else "FDF0E4"
+            for c, v in enumerate(row, 1):
+                style_dat(ws_l.cell(i, c), v, bg)
+            ws_l.row_dimensions[i].height = 14
 
     buf = io.BytesIO()
     wb.save(buf)

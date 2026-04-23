@@ -175,28 +175,34 @@ def page_resultats(res, projet):
             rows_long = []
             for s in res.semelles:
                 if s.long_X_As > 0:
+                    alertes_lX = [a for a in getattr(s,'alertes',[])
+                                  if 'Longrine X' in a]
+                    statut_lX = " | ".join(alertes_lX) if alertes_lX else "✅ OK"
                     rows_long.append({
                         "Poteau":         _nom_pot(s.id_poteau),
                         "Direction":      "X",
                         "Vers poteau":    _nom_pot(s.long_X_vers),
                         "Section":        f"{s.b_long_X*100:.0f}×{s.h_long_X*100:.0f} cm",
-                        "ex (m)":         f"{s.ex:.3f}",  # signe conservé
+                        "e (m)":          f"{getattr(s,'ex_reel',s.ex):.3f}",
                         "Moment (kN.m)":  f"{s.long_X_Mu:.1f}",
                         "As long. (cm²)": f"{s.long_X_As:.2f}",
                         "As chap. (cm²)": f"{s.long_X_As*0.5:.2f}",
-                        "Vérif":          s.long_X_vM,
+                        "Statut":         statut_lX,
                     })
                 if s.long_Y_As > 0:
+                    alertes_lY = [a for a in getattr(s,'alertes',[])
+                                  if 'Longrine Y' in a]
+                    statut_lY = " | ".join(alertes_lY) if alertes_lY else "✅ OK"
                     rows_long.append({
                         "Poteau":         _nom_pot(s.id_poteau),
                         "Direction":      "Y",
                         "Vers poteau":    _nom_pot(s.long_Y_vers),
                         "Section":        f"{s.b_long_Y*100:.0f}×{s.h_long_Y*100:.0f} cm",
-                        "ey (m)":         f"{s.ey:.3f}",
+                        "e (m)":          f"{getattr(s,'ey_reel',s.ey):.3f}",
                         "Moment (kN.m)":  f"{s.long_Y_Mu:.1f}",
                         "As long. (cm²)": f"{s.long_Y_As:.2f}",
                         "As chap. (cm²)": f"{s.long_Y_As*0.5:.2f}",
-                        "Vérif":          s.long_Y_vM,
+                        "Statut":         statut_lY,
                     })
 
             if rows_long:
@@ -345,11 +351,9 @@ def _statut_dalle(r):
 
 
 def _statut_semelle(s, q_adm):
-    """Statut unifié pour une semelle — lit sem.alertes calculées dans fondations.py."""
-    # Utiliser la liste d'alertes calculée par le moteur
+    """Statut semelle — exclut les alertes longrines (affichées dans leur tableau)."""
     alertes = getattr(s, 'alertes', None)
     if alertes is None:
-        # Rétrocompatibilité — recalculer si alertes non disponibles
         alertes = []
         if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
             alertes.append(f"❌ Soulèvement (q_min={s.q_min:.0f}kN/m²<0)")
@@ -358,9 +362,11 @@ def _statut_semelle(s, q_adm):
                 f"❌ q_max={s.q_max:.0f} > q_adm={q_adm:.0f}kN/m²")
         if s.alerte and not alertes:
             alertes.append(f"⚠ {s.alerte}")
-    if not alertes:
+    # Exclure les alertes longrines — affichées dans le tableau Longrines
+    alertes_sem = [a for a in alertes if 'Longrine' not in a]
+    if not alertes_sem:
         return "✅ OK"
-    return " | ".join(alertes)
+    return " | ".join(alertes_sem)
 
 def _surface_projet(projet) -> float:
     """Estime la surface totale du plancher."""
