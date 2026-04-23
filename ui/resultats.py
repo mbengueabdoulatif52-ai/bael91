@@ -337,7 +337,8 @@ def page_resultats(res, projet):
         if st.button("📥 Exporter Excel", use_container_width=True):
             try:
                 from export.excel_writer import exporter_excel
-                buf = exporter_excel(res, projet)
+                types_sem = st.session_state.get("types_semelles", {})
+                buf = exporter_excel(res, projet, types_sem)
                 st.download_button(
                     "⬇ Télécharger le fichier Excel",
                     data=buf, file_name=f"{projet.nom}_resultats.xlsx",

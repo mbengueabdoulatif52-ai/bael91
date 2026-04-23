@@ -8,6 +8,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import re as _re_xls
+import math as _math_xls
 
 try:
     import openpyxl
@@ -16,6 +17,25 @@ try:
     OPENPYXL_OK = True
 except ImportError:
     OPENPYXL_OK = False
+
+
+def _calcul_glacis_xls(s, c_fond, b_pot=0.15, h_pot=0.15):
+    """Calcule les paramètres de la semelle pyramidale pour export."""
+    e_som  = s.e_sem
+    e_bord = max(c_fond + 0.05, 0.10)
+    if e_bord >= e_som: e_bord = e_som
+    debord = min((s.B-b_pot)/2, (s.L_sem-h_pot)/2)
+    angle  = (_math_xls.degrees(
+                  _math_xls.atan((e_som-e_bord)/debord))
+              if debord > 0 and e_som > e_bord else 0)
+    V_rect  = s.B * s.L_sem * e_som
+    V_pyram = (s.B * s.L_sem * e_bord +
+               (s.B * s.L_sem - b_pot*h_pot) *
+               (e_som - e_bord) / 3)
+    eco = (V_rect - V_pyram) / V_rect * 100 if V_rect > 0 else 0
+    return {'e_som': e_som, 'e_bord': e_bord,
+            'angle': angle, 'V_rect': V_rect,
+            'V_pyram': V_pyram, 'eco': eco}
 
 
 def _statut_pot_xls(r, projet):
@@ -96,7 +116,7 @@ def _statut_sem_xls(s, q_adm):
     return " | ".join(alertes_sem) if alertes_sem else "OK"
 
 
-def exporter_excel(res, projet) -> bytes:
+def exporter_excel(res, projet, types_semelles=None) -> bytes:
     """Exporte les résultats dans un fichier Excel. Retourne les bytes."""
     if not OPENPYXL_OK:
         raise ImportError("openpyxl non disponible")
@@ -216,8 +236,12 @@ def exporter_excel(res, projet) -> bytes:
 
     # ── Feuille Fondations ────────────────────────────────────────────────────
     ws3 = wb.create_sheet("Fondations")
-    hdrs3 = ["Poteau", "Type", "ex (m)", "ey (m)", "B (m)", "L (m)", "e (cm)",
-             "Nu (kN)", "q_max (kN/m²)", "Asx (cm²/m)", "Asy (cm²/m)", "Amorces", "Statut"]
+    hdrs3 = ["Poteau", "Forme", "ex (m)", "ey (m)", "B (m)", "L (m)",
+             "e_som (cm)", "e_bord (cm)", "Angle (°)", "Volume (m³)", "Éco %",
+             "Nu (kN)", "q_max (kN/m²)", "Asx (cm²/m)", "Asy (cm²/m)",
+             "Amorces", "Statut"]
+    if types_semelles is None:
+        types_semelles = {}
     for c, h in enumerate(hdrs3, 1):
         style_hdr(ws3.cell(1, c), h, "7B3F00")
         ws3.column_dimensions[get_column_letter(c)].width = 12
@@ -225,11 +249,36 @@ def exporter_excel(res, projet) -> bytes:
         bg = "FCE4D6" if s.alerte else "FDF0E4"
         ex_r = getattr(s, 'ex_reel', s.ex)
         ey_r = getattr(s, 'ey_reel', s.ey)
+
+        # Type de semelle et paramètres glacis
+        key_type = f"type_sem_{s.id_poteau}"
+        type_forme = types_semelles.get(key_type, "Rectangulaire")
+        pot_ref = next((b for b in projet.barres
+                        if b.id==s.id_poteau
+                        and b.type_elem=="poteau"
+                        and b.niveau==1), None)
+        b_pot_r = pot_ref.b if pot_ref else 0.15
+        h_pot_r = pot_ref.h if pot_ref else 0.15
+        g = _calcul_glacis_xls(s, projet.materiaux.c_fond, b_pot_r, h_pot_r)
+
+        if type_forme == "Pyramidale":
+            e_bord_str = f"{g['e_bord']*100:.0f}"
+            angle_str  = f"{g['angle']:.1f}"
+            vol_str    = round(g['V_pyram'], 3)
+            eco_str    = f"-{g['eco']:.0f}%"
+        else:
+            e_bord_str = "—"
+            angle_str  = "—"
+            vol_str    = round(g['V_rect'], 3)
+            eco_str    = "—"
+
         vals = [_np(s.id_poteau),
-                "Centrée" if s.ex==0 and s.ey==0 else "Excentrique",
+                type_forme,
                 f"{ex_r:.3f}" if s.ex != 0 else "—",
                 f"{ey_r:.3f}" if s.ey != 0 else "—",
-                round(s.B,2), round(s.L_sem,2), round(s.e_sem*100,0),
+                round(s.B,2), round(s.L_sem,2),
+                round(s.e_sem*100,0), e_bord_str,
+                angle_str, vol_str, eco_str,
                 round(s.Nu_ser,1), round(s.q_max,0),
                 round(s.Asx,2), round(s.Asy,2),
                 f"{s.nb_amorce}HA{s.phi_amorce} ls={s.ls_amorce*100:.0f}cm",
