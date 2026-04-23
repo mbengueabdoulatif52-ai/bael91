@@ -209,7 +209,8 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
 
         # ── 9 ALERTES ─────────────────────────────────────────────────────────
         q_adm = sem.q_adm_loc if sem.q_adm_loc > 0 else projet.materiaux.q_adm
-        alertes = []
+        # Initialiser depuis les alertes existantes (ex: alerte 10)
+        alertes = list(getattr(sem, 'alertes', []))
 
         # --- GROUPE 1 : Géométrie ---
         # Alerte 6 — poteau déborde de la semelle
@@ -230,13 +231,32 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
         # Alerte 1 — soulèvement
         if hasattr(sem, 'q_min') and sem.q_min is not None:
             if sem.q_min < -0.001:
-                alertes.append(
-                    f"❌ Soulèvement (q_min={sem.q_min:.1f}kN/m²<0) "
-                    f"— réduire ex/ey ou augmenter B")
+                # Vérifier si des longrines sont présentes dans les directions excentriques
+                long_X_ok = (abs(sem.ex) == 0 or sem.long_X_vers > 0)
+                long_Y_ok = (abs(sem.ey) == 0 or sem.long_Y_vers > 0)
+                longrines_ok = long_X_ok and long_Y_ok
+
+                if longrines_ok:
+                    # Soulèvement compensé par les longrines — avertissement seulement
+                    alertes.append(
+                        f"⚠ Soulèvement compensé par longrines "
+                        f"(q_min={sem.q_min:.1f}kN/m²) "
+                        f"— vérifier dimensionnement longrines")
+                else:
+                    # Soulèvement réel sans longrine — erreur bloquante
+                    manquantes = []
+                    if abs(sem.ex) > 0 and sem.long_X_vers <= 0:
+                        manquantes.append("X")
+                    if abs(sem.ey) > 0 and sem.long_Y_vers <= 0:
+                        manquantes.append("Y")
+                    dirs = "/".join(manquantes)
+                    alertes.append(
+                        f"❌ Soulèvement (q_min={sem.q_min:.1f}kN/m²<0) "
+                        f"— ajouter longrine direction {dirs} "
+                        f"ou réduire excentricité")
             elif abs(sem.q_min) < 0.001 and (abs(sem.ex)>0 or abs(sem.ey)>0):
                 # Alerte 2 — limite soulèvement
                 # Supprimer si convention -1/0/+1 car c'est le comportement attendu
-                # (poteau intentionnellement en bord de semelle)
                 if sem.ex not in (-1.0, 0.0, 1.0) or sem.ey not in (-1.0, 0.0, 1.0):
                     alertes.append(
                         f"⚠ Semelle en limite de soulèvement (q_min≈0)")
