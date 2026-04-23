@@ -168,6 +168,35 @@ def page_visualisation(projet, res=None):
              "Dalles","Fondations","Tout"],
             key="label_type")
 
+    # ── Filtre par niveau ─────────────────────────────────────────────────────
+    niveaux_dispo = sorted(set(
+        b.niveau for b in projet.barres
+        if b.type_elem in ("poutre","poteau")
+    ), reverse=True)
+    nb_niv = len(niveaux_dispo)
+
+    if nb_niv > 1:
+        col_niv1, col_niv2 = st.columns([3, 1])
+        with col_niv1:
+            if nb_niv > 0:
+                niv_sel = st.select_slider(
+                    "Niveau affiché",
+                    options=["Tous"] + [str(n) for n in niveaux_dispo],
+                    value="Tous",
+                    key="visu_niv_slider"
+                )
+        with col_niv2:
+            st.markdown(
+                f"<div style='padding-top:28px;color:#666;font-size:0.85rem'>"
+                f"{nb_niv} niveau(x)</div>",
+                unsafe_allow_html=True)
+    else:
+        niv_sel = "Tous"
+
+    # Filtre actif
+    niv_filtre = None if niv_sel == "Tous" else int(niv_sel)
+    mode_filaire_global = (niv_sel == "Tous" and nb_niv > 3)
+
     # Palette
     COL_POUTRE   = "#2E75B6"
     COL_POTEAU   = "#D4AF37"
@@ -179,6 +208,23 @@ def page_visualisation(projet, res=None):
 
     fig = go.Figure()
 
+    # ── Plan de sol à Z=0 ────────────────────────────────────────────────────
+    if show_fond or True:  # toujours affiché
+        xs = [n.x for n in projet.noeuds]
+        ys = [n.y for n in projet.noeuds]
+        if xs and ys:
+            marge = 0.5
+            x0, x1 = min(xs)-marge, max(xs)+marge
+            y0, y1 = min(ys)-marge, max(ys)+marge
+            fig.add_trace(go.Mesh3d(
+                x=[x0,x1,x1,x0], y=[y0,y0,y1,y1],
+                z=[0,0,0,0],
+                i=[0,0], j=[1,2], k=[2,3],
+                color="#D4C5A9", opacity=0.25,
+                flatshading=True, showlegend=False,
+                hoverinfo="skip",
+                name="Sol"))
+
     # ══════════════════════════════════════════════════════════════════════════
     # POUTRES
     # ══════════════════════════════════════════════════════════════════════════
@@ -186,25 +232,38 @@ def page_visualisation(projet, res=None):
         first_p = True
         for b in projet.barres:
             if b.type_elem != "poutre": continue
+            if niv_filtre is not None and b.niveau != niv_filtre: continue
             ni = noeud_map.get(b.ni); nj = noeud_map.get(b.nj)
             if not ni or not nj: continue
 
             color = COL_POUTRE; r_p = None
             if show_res and res:
                 r_p = next((r for r in res.poutres if r.barre_id==b.id),None)
-                if r_p and r_p.alerte: color = COL_ALERTE
+                if r_p:
+                    if r_p.mu_r > 0.392:
+                        color = COL_ALERTE          # rouge — critique
+                    elif r_p.alerte:
+                        color = "#F39C12"            # orange — avertissement
+                    else:
+                        color = "#27AE60"            # vert — OK
 
-            hover = (f"<b>{b.nom}({b.ni}-{b.nj})</b><br>"
-                     f"Section {b.b*100:.0f}×{b.h*100:.0f}cm  "
-                     f"Niv={b.niveau}  L={b.longueur:.2f}m")
+            hover = (f"<b>{b.nom}</b>  Niv.{b.niveau}<br>"
+                     f"Section {b.b*100:.0f}×{b.h*100:.0f}cm  L={b.longueur:.2f}m")
             if r_p:
-                hover += (f"<br>────────<br>Mu={r_p.Mu:.2f}kN.m  "
-                          f"As={r_p.As_long:.2f}cm²<br>"
-                          f"{'⚠ REVOIR' if r_p.alerte else '✓ OK'}")
+                from ui.resultats import _statut_poutre
+                statut_p = _statut_poutre(r_p)
+                hover += (f"<br>{'─'*20}<br>"
+                          f"Mu = {r_p.Mu:.2f} kN.m<br>"
+                          f"Tu = {r_p.Tu:.2f} kN<br>"
+                          f"As long. = {r_p.As_long:.2f} cm²<br>"
+                          f"As chap. = {r_p.As_chap:.2f} cm²<br>"
+                          f"At/st = {r_p.At_st:.2f} cm²/m<br>"
+                          f"{'─'*20}<br>"
+                          f"{statut_p}")
 
             mx=(ni.x+nj.x)/2; my=(ni.y+nj.y)/2; mz=ni.z
 
-            if show_vol:
+            if show_vol and not mode_filaire_global:
                 t = _prisme_horiz(ni.x,ni.y,nj.x,nj.y,
                                   mz-b.h, mz, b.b, color, 0.85)
                 if t: fig.add_trace(t)
@@ -238,22 +297,37 @@ def page_visualisation(projet, res=None):
         first_c = True
         for b in projet.barres:
             if b.type_elem != "poteau": continue
+            if niv_filtre is not None and b.niveau != niv_filtre: continue
             ni = noeud_map.get(b.ni); nj = noeud_map.get(b.nj)
             if not ni or not nj: continue
 
             color = COL_POTEAU; r_c = None
             if show_res and res:
                 r_c = next((r for r in res.poteaux if r.barre_id==b.id),None)
-                if r_c and r_c.alerte_am: color = COL_ALERTE
+                if r_c:
+                    alertes_pot = getattr(r_c, '_statut_color', None)
+                    b_ref = next((bb for bb in projet.barres
+                                  if bb.id==r_c.barre_id), None)
+                    As_max = (0.05*b_ref.b*1000*b_ref.h*1000/100
+                              if b_ref else 999)
+                    if r_c.As > As_max or r_c.lam > 70:
+                        color = COL_ALERTE       # rouge — critique
+                    elif r_c.alerte_am:
+                        color = "#F39C12"        # orange — avertissement
+                    else:
+                        color = "#27AE60"        # vert — OK
 
-            hover = (f"<b>{b.nom}({b.ni}-{b.nj})</b><br>"
-                     f"Section {b.b*100:.0f}×{b.h*100:.0f}cm  "
-                     f"Niv={b.niveau}  H={b.longueur:.2f}m")
+            hover = (f"<b>{b.nom}</b>  Niv.{b.niveau}<br>"
+                     f"Section {b.b*100:.0f}×{b.h*100:.0f}cm  H={b.longueur:.2f}m")
             if r_c:
-                hover += (f"<br>────────<br>Nu={r_c.Nu:.1f}kN  "
-                          f"As={r_c.As:.2f}cm²<br>"
-                          f"λ={r_c.lam:.0f}  α={r_c.alpha:.3f}<br>"
-                          f"{'⚠ REVOIR' if r_c.alerte_am else '✓ OK'}")
+                from ui.resultats import _statut_poteau
+                statut_c = _statut_poteau(r_c, projet)
+                hover += (f"<br>{'─'*20}<br>"
+                          f"Nu = {r_c.Nu:.1f} kN<br>"
+                          f"As = {r_c.As:.2f} cm²<br>"
+                          f"α = {r_c.alpha:.2f}  λ = {r_c.lam:.0f}<br>"
+                          f"{'─'*20}<br>"
+                          f"{statut_c}")
 
             mx=(ni.x+nj.x)/2; my=(ni.y+nj.y)/2; mz=(ni.z+nj.z)/2
 
@@ -558,13 +632,26 @@ def page_visualisation(projet, res=None):
         scene["zaxis"] = dict(range=[z_fond-0.5, None])
 
     fig.update_layout(
-        height=720, showlegend=True,
+        height=750, showlegend=True,
         legend=dict(x=0,y=1,bgcolor="rgba(255,255,255,0.88)",
-                    bordercolor="#ccc",borderwidth=1),
+                    bordercolor="#ccc",borderwidth=1,font=dict(size=10)),
         scene=scene,
         margin=dict(l=0,r=0,b=0,t=30),
-        paper_bgcolor="white",
-        hoverlabel=dict(bgcolor="white",font_size=11,font_family="Arial"))
+        paper_bgcolor="#F8F9FA",
+        hoverlabel=dict(bgcolor="white",font_size=11,
+                        font_family="Arial",namelength=-1))
+
+    # Info niveau affiché
+    if niv_filtre is not None:
+        nb_el = (sum(1 for b in projet.barres
+                     if b.niveau==niv_filtre and b.type_elem=="poutre") +
+                 sum(1 for b in projet.barres
+                     if b.niveau==niv_filtre and b.type_elem=="poteau"))
+        st.caption(f"📐 Niveau {niv_filtre} affiché — {nb_el} éléments")
+    else:
+        nb_el = len(projet.barres)
+        if mode_filaire_global:
+            st.caption(f"📐 Tous niveaux — mode filaire (projet > 3 niveaux)")
 
     st.plotly_chart(fig, use_container_width=True)
 
