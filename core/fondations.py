@@ -154,8 +154,23 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
 
         if abs(sem.ex) == 0 and abs(sem.ey) == 0:
             dim_semelle_centree(sem, b_pot, h_pot, projet.materiaux)
+            sem.ex_reel = 0.0
+            sem.ey_reel = 0.0
         else:
             dim_semelle_excentrique(sem, b_pot, h_pot, projet.materiaux)
+            # Convertir ex/ey en valeurs métriques réelles
+            # Nouvelle convention : ex/ey ∈ {-1, 0, +1}
+            #   → ex_reel = signe × (B/2 - b_pot/2)
+            #   → poteau affleure exactement le bord de la semelle
+            # Ancienne convention : ex/ey = valeur métrique directe
+            #   → ex_reel = ex  (rétrocompatibilité)
+            if sem.ex in (-1.0, 0.0, 1.0) and sem.ey in (-1.0, 0.0, 1.0):
+                sem.ex_reel = sem.ex * (sem.B / 2 - b_pot / 2)
+                sem.ey_reel = sem.ey * (sem.L_sem / 2 - h_pot / 2)
+            else:
+                # Ancien format métrique — utiliser directement
+                sem.ex_reel = sem.ex
+                sem.ey_reel = sem.ey
 
         # Amorces : ferraillage réel du poteau niveau 1
         # Si pas de résultats disponibles → utiliser As_min
@@ -168,7 +183,7 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
         # Trouver la longueur de la longrine (distance au poteau voisin)
         if abs(sem.ex) > 0 and sem.long_X_vers > 0:
             L_lX = _distance_poteaux(pot, sem.long_X_vers, projet)
-            r = dim_longrine(sem.Nu_ser, abs(sem.ex), L_lX,
+            r = dim_longrine(sem.Nu_ser, abs(sem.ex_reel), L_lX,
                              sem.b_long_X, sem.h_long_X, projet.materiaux)
             sem.long_X_Mu = r["Mu"]
             sem.long_X_As = r["As_long"]
@@ -176,7 +191,7 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
 
         if abs(sem.ey) > 0 and sem.long_Y_vers > 0:
             L_lY = _distance_poteaux(pot, sem.long_Y_vers, projet)
-            r = dim_longrine(sem.Nu_ser, abs(sem.ey), L_lY,
+            r = dim_longrine(sem.Nu_ser, abs(sem.ey_reel), L_lY,
                              sem.b_long_Y, sem.h_long_Y, projet.materiaux)
             sem.long_Y_Mu = r["Mu"]
             sem.long_Y_As = r["As_long"]

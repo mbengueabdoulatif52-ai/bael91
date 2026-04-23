@@ -212,15 +212,19 @@ def exporter_excel(res, projet) -> bytes:
 
     # ── Feuille Fondations ────────────────────────────────────────────────────
     ws3 = wb.create_sheet("Fondations")
-    hdrs3 = ["Poteau", "Type", "B (m)", "L (m)", "e (cm)",
+    hdrs3 = ["Poteau", "Type", "ex (m)", "ey (m)", "B (m)", "L (m)", "e (cm)",
              "Nu (kN)", "q_max (kN/m²)", "Asx (cm²/m)", "Asy (cm²/m)", "Amorces", "Statut"]
     for c, h in enumerate(hdrs3, 1):
         style_hdr(ws3.cell(1, c), h, "7B3F00")
         ws3.column_dimensions[get_column_letter(c)].width = 12
     for i, s in enumerate(res.semelles, 2):
         bg = "FCE4D6" if s.alerte else "FDF0E4"
+        ex_r = getattr(s, 'ex_reel', s.ex)
+        ey_r = getattr(s, 'ey_reel', s.ey)
         vals = [_np(s.id_poteau),
                 "Centrée" if s.ex==0 and s.ey==0 else "Excentrique",
+                f"{ex_r:.3f}" if s.ex != 0 else "—",
+                f"{ey_r:.3f}" if s.ey != 0 else "—",
                 round(s.B,2), round(s.L_sem,2), round(s.e_sem*100,0),
                 round(s.Nu_ser,1), round(s.q_max,0),
                 round(s.Asx,2), round(s.Asy,2),

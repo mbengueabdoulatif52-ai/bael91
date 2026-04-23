@@ -157,8 +157,8 @@ def page_resultats(res, projet):
             df_f = pd.DataFrame([{
                 "Poteau":        _nom_pot(s.id_poteau),
                 "Type":          "Centrée" if s.ex==0 and s.ey==0 else "Excentrique",
-                "ex (m)":        f"{s.ex:.3f}" if s.ex != 0 else "—",
-                "ey (m)":        f"{s.ey:.3f}" if s.ey != 0 else "—",
+                "ex (m)":        f"{getattr(s,'ex_reel',s.ex):.3f}" if s.ex != 0 else "—",
+                "ey (m)":        f"{getattr(s,'ey_reel',s.ey):.3f}" if s.ey != 0 else "—",
                 # Note : ex/ey peuvent être signés (signe = sens du décalage)
                 # Note : ex et ey peuvent être négatifs (sens du décalage)
                 "B×L (m)":       f"{s.B:.2f}×{s.L_sem:.2f}",

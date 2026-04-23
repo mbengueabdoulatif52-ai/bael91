@@ -119,8 +119,11 @@ def _centre_semelle(n_base, s):
     ey positif → décalage vers Y croissants (haut)
     ey négatif → décalage vers Y décroissants (bas)
     """
-    cx = n_base.x + s.ex   # signe respecté directement
-    cy = n_base.y + s.ey   # signe respecté directement
+    # ex_reel/ey_reel = valeurs métriques calculées depuis ex/ey (-1,0,+1)
+    ex_r = getattr(s, 'ex_reel', s.ex)
+    ey_r = getattr(s, 'ey_reel', s.ey)
+    cx = n_base.x + ex_r
+    cy = n_base.y + ey_r
     return cx, cy
 
 
@@ -439,7 +442,8 @@ def page_visualisation(projet, res=None):
 
             hover_s = (f"<b>Semelle C{s.id_poteau}</b><br>"
                        f"{'Excentrique' if s.ex!=0 or s.ey!=0 else 'Centrée'}"
-                       f"  ex={abs(s.ex):.2f}m  ey={abs(s.ey):.2f}m<br>"
+                       f"  ex={abs(getattr(s,'ex_reel',s.ex)):.3f}m  "
+                       f"ey={abs(getattr(s,'ey_reel',s.ey)):.3f}m<br>"
                        f"B×L={B:.2f}×{L:.2f}m  e={e*100:.0f}cm<br>"
                        f"Nu={s.Nu_ser:.1f}kN  q_max={s.q_max:.0f}kN/m²<br>"
                        f"Asx={s.Asx:.2f}cm²/m<br>"
@@ -489,8 +493,10 @@ def page_visualisation(projet, res=None):
 
             # ── Longrines ────────────────────────────────────────────────────
             for direction, As_l, vers_id, e_val, Mu_l in [
-                ("X", s.long_X_As, s.long_X_vers, s.ex, s.long_X_Mu),
-                ("Y", s.long_Y_As, s.long_Y_vers, s.ey, s.long_Y_Mu),
+                ("X", s.long_X_As, s.long_X_vers,
+                 getattr(s,'ex_reel',s.ex), s.long_X_Mu),
+                ("Y", s.long_Y_As, s.long_Y_vers,
+                 getattr(s,'ey_reel',s.ey), s.long_Y_Mu),
             ]:
                 if As_l <= 0 or vers_id <= 0: continue
                 pot2 = pots_n1.get(vers_id)
