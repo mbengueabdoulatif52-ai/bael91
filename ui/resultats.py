@@ -171,6 +171,109 @@ def page_resultats(res, projet):
             } for s in res.semelles])
             st.dataframe(df_f, use_container_width=True, hide_index=True)
 
+            # ── Configuration type de semelles ────────────────────────────────
+            st.markdown("#### ⚙️ Type de semelles")
+            st.caption("Choisissez le type pour chaque semelle — "
+                       "le programme calcule automatiquement les paramètres.")
+
+            # Initialiser session state pour les types de semelles
+            if "types_semelles" not in st.session_state:
+                st.session_state.types_semelles = {}
+
+            import math as _math_sem
+
+            def _calcul_glacis(s, c_fond, b_pot=0.15, h_pot=0.15):
+                e_som  = s.e_sem
+                e_bord = max(c_fond + 0.05, 0.10)
+                if e_bord >= e_som:
+                    e_bord = e_som
+                debord_x = (s.B - b_pot) / 2
+                debord_y = (s.L_sem - h_pot) / 2
+                debord   = min(debord_x, debord_y)
+                angle = (_math_sem.degrees(
+                    _math_sem.atan((e_som - e_bord) / debord))
+                    if debord > 0 and e_som > e_bord else 0)
+                V_rect  = s.B * s.L_sem * e_som
+                V_pyram = (s.B * s.L_sem * e_bord +
+                           (s.B * s.L_sem - b_pot*h_pot) *
+                           (e_som - e_bord) / 3)
+                eco = (V_rect - V_pyram) / V_rect * 100 if V_rect > 0 else 0
+                return {'e_som': e_som, 'e_bord': e_bord,
+                        'angle': angle, 'V_rect': V_rect,
+                        'V_pyram': V_pyram, 'eco': eco}
+
+            # Tableau de configuration
+            rows_cfg = []
+            for s in res.semelles:
+                nom = _nom_pot(s.id_poteau)
+                pot = next((b for b in projet.barres
+                            if b.id==s.id_poteau
+                            and b.type_elem=="poteau"
+                            and b.niveau==1), None)
+                b_pot = pot.b if pot else 0.15
+                h_pot = pot.h if pot else 0.15
+                g = _calcul_glacis(s, projet.materiaux.c_fond, b_pot, h_pot)
+
+                key = f"type_sem_{s.id_poteau}"
+                if key not in st.session_state.types_semelles:
+                    st.session_state.types_semelles[key] = "Rectangulaire"
+
+                col1, col2, col3, col4, col5, col6 = st.columns(
+                    [2, 2, 1.5, 1.5, 1.5, 2])
+                with col1:
+                    st.write(f"**{nom}**  {s.B:.2f}×{s.L_sem:.2f}m")
+                with col2:
+                    choix = st.selectbox(
+                        "Type", ["Rectangulaire", "Pyramidale"],
+                        key=key,
+                        label_visibility="collapsed")
+                    st.session_state.types_semelles[key] = choix
+                with col3:
+                    if choix == "Pyramidale":
+                        st.metric("e_sommet", f"{g['e_som']*100:.0f}cm")
+                    else:
+                        st.metric("e", f"{g['e_som']*100:.0f}cm")
+                with col4:
+                    if choix == "Pyramidale":
+                        st.metric("e_bord", f"{g['e_bord']*100:.0f}cm")
+                    else:
+                        st.write("")
+                with col5:
+                    if choix == "Pyramidale":
+                        st.metric("Angle", f"{g['angle']:.1f}°")
+                    else:
+                        st.write("")
+                with col6:
+                    if choix == "Pyramidale":
+                        st.metric(
+                            "Volume",
+                            f"{g['V_pyram']:.2f}m³",
+                            delta=f"-{g['eco']:.0f}% vs rect.",
+                            delta_color="inverse")
+                    else:
+                        st.metric("Volume", f"{g['V_rect']:.2f}m³")
+
+            # Récapitulatif volumes
+            st.divider()
+            total_rect  = sum(
+                _calcul_glacis(s, projet.materiaux.c_fond)['V_rect']
+                for s in res.semelles)
+            total_pyram = sum(
+                (_calcul_glacis(s, projet.materiaux.c_fond)['V_pyram']
+                 if st.session_state.types_semelles.get(
+                     f"type_sem_{s.id_poteau}") == "Pyramidale"
+                 else _calcul_glacis(s, projet.materiaux.c_fond)['V_rect'])
+                for s in res.semelles)
+            eco_tot = (total_rect - total_pyram) / total_rect * 100
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Volume total rectangulaire", f"{total_rect:.2f} m³")
+            c2.metric("Volume total choix actuel",  f"{total_pyram:.2f} m³")
+            c3.metric("Économie béton",
+                      f"{total_rect - total_pyram:.2f} m³",
+                      delta=f"-{eco_tot:.1f}%",
+                      delta_color="inverse")
+
             # ── Tableau longrines ──────────────────────────────────────────────
             rows_long = []
             for s in res.semelles:
