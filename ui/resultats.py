@@ -345,21 +345,22 @@ def _statut_dalle(r):
 
 
 def _statut_semelle(s, q_adm):
-    """Statut unifié pour une semelle — messages explicites."""
-    alertes = []
-    # Soulèvement (q_min < 0) — uniquement semelles excentriques
-    if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
-        alertes.append(
-            f"❌ Soulèvement (q_min={s.q_min:.0f}kN/m² < 0) "
-            f"— revoir excentricité")
-    # Pression sol dépassée
-    if s.q_max > q_adm * 1.01:
-        alertes.append(
-            f"❌ q_max={s.q_max:.0f} > q_adm={q_adm:.0f} kN/m²")
-    # Alerte générique existante
-    if s.alerte and not alertes:
-        alertes.append(f"⚠ {s.alerte}")
-    return " | ".join(alertes) if alertes else "✅ OK"
+    """Statut unifié pour une semelle — lit sem.alertes calculées dans fondations.py."""
+    # Utiliser la liste d'alertes calculée par le moteur
+    alertes = getattr(s, 'alertes', None)
+    if alertes is None:
+        # Rétrocompatibilité — recalculer si alertes non disponibles
+        alertes = []
+        if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
+            alertes.append(f"❌ Soulèvement (q_min={s.q_min:.0f}kN/m²<0)")
+        if s.q_max > q_adm * 1.01:
+            alertes.append(
+                f"❌ q_max={s.q_max:.0f} > q_adm={q_adm:.0f}kN/m²")
+        if s.alerte and not alertes:
+            alertes.append(f"⚠ {s.alerte}")
+    if not alertes:
+        return "✅ OK"
+    return " | ".join(alertes)
 
 def _surface_projet(projet) -> float:
     """Estime la surface totale du plancher."""

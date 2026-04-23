@@ -81,14 +81,16 @@ def _statut_dal_xls(r):
 
 
 def _statut_sem_xls(s, q_adm):
-    """Statut semelle pour export Excel."""
-    alertes = []
-    if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
-        alertes.append(f"Soulevement q_min={s.q_min:.0f}kN/m2")
-    if s.q_max > q_adm * 1.01:
-        alertes.append(f"q_max={s.q_max:.0f}>q_adm={q_adm:.0f}kN/m2")
-    if s.alerte and not alertes:
-        alertes.append(str(s.alerte))
+    """Statut semelle pour export Excel — lit sem.alertes du moteur."""
+    alertes = getattr(s, 'alertes', None)
+    if alertes is None:
+        alertes = []
+        if hasattr(s, 'q_min') and s.q_min is not None and s.q_min < 0:
+            alertes.append(f"Soulevement q_min={s.q_min:.0f}kN/m2")
+        if s.q_max > q_adm * 1.01:
+            alertes.append(f"q_max={s.q_max:.0f}>q_adm={q_adm:.0f}kN/m2")
+        if s.alerte and not alertes:
+            alertes.append(str(s.alerte))
     return " | ".join(alertes) if alertes else "OK"
 
 

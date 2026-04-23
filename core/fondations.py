@@ -173,14 +173,14 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
                 sem.ey_reel = sem.ey
 
         # Amorces : ferraillage réel du poteau niveau 1
-        # Si pas de résultats disponibles → utiliser As_min
         As_pot = as_poteaux_n1.get(pot.id,
                  0.002 * b_pot*1000 * h_pot*1000 / 100)
         sem.phi_amorce, sem.nb_amorce = _choisir_amorces(As_pot, b_pot, h_pot)
-        sem.ls_amorce = 40 * sem.phi_amorce / 1000  # ls = 40φ (BAEL)
+        sem.ls_amorce = 40 * sem.phi_amorce / 1000
 
-        # ── Longrines — v2 : appel automatique ────────────────────────────────
-        # Trouver la longueur de la longrine (distance au poteau voisin)
+        # ── Longrines ─────────────────────────────────────────────────────────
+        ids_poteaux = {b.id for b in projet.barres if b.type_elem == "poteau"}
+
         if abs(sem.ex) > 0 and sem.long_X_vers > 0:
             L_lX = _distance_poteaux(pot, sem.long_X_vers, projet)
             r = dim_longrine(sem.Nu_ser, abs(sem.ex_reel), L_lX,
@@ -196,6 +196,99 @@ def calc_toutes_semelles(projet, charges_reportees: dict,
             sem.long_Y_Mu = r["Mu"]
             sem.long_Y_As = r["As_long"]
             sem.long_Y_vM = r["vM"]
+
+        # ── 9 ALERTES ─────────────────────────────────────────────────────────
+        q_adm = sem.q_adm_loc if sem.q_adm_loc > 0 else projet.materiaux.q_adm
+        alertes = []
+
+        # --- GROUPE 1 : Géométrie ---
+        # Alerte 6 — poteau déborde de la semelle
+        if abs(sem.ex) > 0:
+            debord_x = sem.B / 2 - b_pot / 2
+            if abs(sem.ex_reel) > debord_x + 0.001:
+                alertes.append(
+                    f"❌ |ex_reel|={abs(sem.ex_reel):.3f}m > "
+                    f"B/2-b/2={debord_x:.3f}m — poteau déborde de la semelle")
+        if abs(sem.ey) > 0:
+            debord_y = sem.L_sem / 2 - h_pot / 2
+            if abs(sem.ey_reel) > debord_y + 0.001:
+                alertes.append(
+                    f"❌ |ey_reel|={abs(sem.ey_reel):.3f}m > "
+                    f"L/2-h/2={debord_y:.3f}m — poteau déborde de la semelle")
+
+        # --- GROUPE 2 : Sol ---
+        # Alerte 1 — soulèvement
+        if hasattr(sem, 'q_min') and sem.q_min is not None:
+            if sem.q_min < -0.001:
+                alertes.append(
+                    f"❌ Soulèvement (q_min={sem.q_min:.1f}kN/m²<0) "
+                    f"— réduire ex/ey ou augmenter B")
+            elif abs(sem.q_min) < 0.001 and (abs(sem.ex)>0 or abs(sem.ey)>0):
+                # Alerte 2 — limite soulèvement
+                alertes.append(
+                    f"⚠ Semelle en limite de soulèvement (q_min≈0)")
+
+        # Alerte 3 — pression sol dépassée
+        if sem.q_max > q_adm * 1.01:
+            alertes.append(
+                f"❌ q_max={sem.q_max:.0f} > q_adm={q_adm:.0f}kN/m²")
+
+        # --- GROUPE 3 : Longrines ---
+        fc28  = projet.materiaux.fc28
+        fbu   = 0.85 * fc28 / 1.5   # kN/cm²  ← attention unités
+        fbu_MPa = 0.85 * fc28 / 1.5  # MPa
+
+        for direc, b_l, h_l, As_l, Mu_l, vers in [
+            ("X", sem.b_long_X, sem.h_long_X,
+             sem.long_X_As, sem.long_X_Mu, sem.long_X_vers),
+            ("Y", sem.b_long_Y, sem.h_long_Y,
+             sem.long_Y_As, sem.long_Y_Mu, sem.long_Y_vers),
+        ]:
+            e_dir = sem.ex if direc == "X" else sem.ey
+            if abs(e_dir) == 0:
+                continue
+
+            # Alerte 9 — poteau destination introuvable
+            if vers > 0 and vers not in ids_poteaux:
+                alertes.append(
+                    f"⚠ Longrine {direc} : poteau destination C{vers} "
+                    f"introuvable — vérifier l'ID dans l'Excel")
+                continue
+
+            # Alerte 8 — section non renseignée
+            if b_l <= 0 or h_l <= 0:
+                alertes.append(
+                    f"⚠ Longrine {direc} : section non renseignée "
+                    f"(b=0 ou h=0) — saisir b_l{direc} et h_l{direc} "
+                    f"dans l'Excel")
+                continue
+
+            if Mu_l <= 0:
+                continue
+
+            c_env = projet.materiaux.c_poutre
+            d_l   = h_l - c_env
+            if d_l <= 0:
+                continue
+
+            # Alerte 4 — μ longrine > 0.392
+            mu_l = Mu_l / (b_l*1000 * (d_l*1000)**2 * fbu_MPa / 1e6)
+            if mu_l > 0.392:
+                alertes.append(
+                    f"❌ Longrine {direc} : μ={mu_l:.3f} > 0.392 "
+                    f"— augmenter section "
+                    f"({b_l*100:.0f}×{h_l*100:.0f}cm insuffisant)")
+
+            # Alerte 5 — As longrine > As_max
+            As_max_l = 0.05 * b_l*1000 * h_l*1000 / 100
+            if As_l > As_max_l:
+                alertes.append(
+                    f"❌ Longrine {direc} : As={As_l:.2f} > "
+                    f"As_max={As_max_l:.2f}cm² — augmenter section")
+
+        sem.alertes = alertes
+        # Rétrocompatibilité : sem.alerte = premier message ou vide
+        sem.alerte = alertes[0] if alertes else ""
 
 
 # ── Utilitaires ────────────────────────────────────────────────────────────────
