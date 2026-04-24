@@ -332,32 +332,95 @@ def page_resultats(res, projet):
 
     # ── Export ─────────────────────────────────────────────────────────────────
     st.divider()
+    st.markdown("### 💾 Exports")
+
+    # ── Ligne 1 : Excel + PDF ─────────────────────────────────────────────────
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📥 Exporter Excel", use_container_width=True):
+        if st.button("📊 Exporter Excel", use_container_width=True):
             try:
                 from export.excel_writer import exporter_excel
                 types_sem = st.session_state.get("types_semelles", {})
                 buf = exporter_excel(res, projet, types_sem)
                 st.download_button(
-                    "⬇ Télécharger le fichier Excel",
-                    data=buf, file_name=f"{projet.nom}_resultats.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                    "⬇ Télécharger Excel",
+                    data=buf,
+                    file_name=f"{projet.nom}_resultats.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument"
+                         ".spreadsheetml.sheet",
+                    use_container_width=True)
             except Exception as e:
                 st.error(f"Erreur export Excel : {e}")
     with col2:
-        if st.button("📄 Exporter PDF", use_container_width=True):
+        if st.button("📄 Exporter PDF (rapport)", use_container_width=True):
             try:
                 from export.pdf_writer import exporter_pdf
                 buf = exporter_pdf(res, projet)
                 st.download_button(
-                    "⬇ Télécharger le rapport PDF",
-                    data=buf, file_name=f"{projet.nom}_rapport.pdf",
-                    mime="application/pdf"
-                )
+                    "⬇ Télécharger PDF rapport",
+                    data=buf,
+                    file_name=f"{projet.nom}_rapport.pdf",
+                    mime="application/pdf",
+                    use_container_width=True)
             except Exception as e:
                 st.error(f"Erreur export PDF : {e}")
+
+    # ── Ligne 2 : Note de calcul (.txt / .docx / .pdf) ────────────────────────
+    st.markdown("#### 📋 Note de calcul")
+    st.caption("Cheminement complet pour chaque élément — dalles, "
+               "poutres, poteaux, fondations.")
+
+    col3, col4, col5 = st.columns(3)
+
+    with col3:
+        if st.button("📝 Note de calcul (.txt)", use_container_width=True):
+            try:
+                from export.note_calcul import generer_note_calcul
+                with st.spinner("Génération en cours..."):
+                    note = generer_note_calcul(res, projet)
+                st.download_button(
+                    "⬇ Télécharger .txt",
+                    data=note.encode("utf-8"),
+                    file_name=f"{projet.nom}_note_calcul.txt",
+                    mime="text/plain",
+                    use_container_width=True)
+                st.success(f"Note générée — "
+                           f"{len(note.split(chr(10)))} lignes")
+            except Exception as e:
+                st.error(f"Erreur note .txt : {e}")
+
+    with col4:
+        if st.button("📄 Note de calcul (.docx)", use_container_width=True):
+            try:
+                from export.note_calcul import generer_note_docx
+                with st.spinner("Génération Word en cours..."):
+                    buf = generer_note_docx(res, projet)
+                st.download_button(
+                    "⬇ Télécharger .docx",
+                    data=buf,
+                    file_name=f"{projet.nom}_note_calcul.docx",
+                    mime="application/vnd.openxmlformats-officedocument"
+                         ".wordprocessingml.document",
+                    use_container_width=True)
+                st.success(f"Note Word générée — {len(buf)//1024} Ko")
+            except Exception as e:
+                st.error(f"Erreur note .docx : {e}")
+
+    with col5:
+        if st.button("📕 Note de calcul (.pdf)", use_container_width=True):
+            try:
+                from export.note_calcul import generer_note_pdf
+                with st.spinner("Génération PDF en cours..."):
+                    buf = generer_note_pdf(res, projet)
+                st.download_button(
+                    "⬇ Télécharger .pdf",
+                    data=buf,
+                    file_name=f"{projet.nom}_note_calcul.pdf",
+                    mime="application/pdf",
+                    use_container_width=True)
+                st.success(f"Note PDF générée — {len(buf)//1024} Ko")
+            except Exception as e:
+                st.error(f"Erreur note .pdf : {e}")
 
 
 # ── Utilitaires ────────────────────────────────────────────────────────────────
